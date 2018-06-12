@@ -1,7 +1,7 @@
 {
     "name": "clang-tidy-linter",
     "displayName": "clang-tidy-linter",
-    "description": "",
+    "description": "A Visual Studio Code extension to lint code by clang-tidy.",
     "version": "0.0.1",
     "publisher": "alesiong",
     "engines": {
