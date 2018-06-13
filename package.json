@@ -1,20 +1,70 @@
 {
     "name": "clang-tidy-linter",
-    "displayName": "clang-tidy-linter",
+    "displayName": "Clang-tidy Linter",
     "description": "A Visual Studio Code extension to lint code by clang-tidy.",
     "version": "0.0.1",
     "publisher": "alesiong",
     "engines": {
         "vscode": "^1.24.0"
     },
+    "license": "SEE LICENSE IN LICENSE",
     "categories": [
-        "Other"
+        "Linters"
     ],
+    "keywords": [
+        "clang-tidy",
+        "C",
+        "C++",
+        "linter"
+    ],
+    "preview": true,
     "main": "./out/extension",
     "activationEvents": [
         "onLanguage:cpp",
         "onLanguage:c"
     ],
+    "contributes": {
+        "configuration": {
+            "type": "object",
+            "title": "Clang-tidy linter configuration",
+            "properties": {
+                "clangTidy.executable": {
+                    "type": "string",
+                    "default": "clang-tidy",
+                    "description": "Path to the clang-tidy executable"
+                },
+                "clangTidy.systemIncludePath": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Extra system include paths to pass to the compiler (-extra-arg=-isystem). Use `echo |clang -x c++ -v -fsyntax-only -` to check your default include path"
+                },
+                "clangTidy.lintLanguages": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "c",
+                        "cpp"
+                    ],
+                    "description": "Language type to enable clang-tidy linter"
+                },
+                "clangTidy.extraCompilerArgs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "-Weverything"
+                    ],
+                    "description": "Extra arguments pass to compiler (-extra-arg=)"
+                }
+            }
+        }
+    },
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
