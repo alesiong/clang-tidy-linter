@@ -24,6 +24,8 @@ You may need to modify some default settings to get this extension to work for n
 
 `clangTidy.extraCompilerArgs`: Extra arguments that pass to the **compiler** (not `clang-tidy`).
 
+If you want to configure the checks of clang tidy, create a `.clang-tidy` file in your working directory (please refer to the `clang-tidy`'s document for detail).
+
 ## Known Issues
 
 
