@@ -34,9 +34,13 @@ export default class ClangTidyProvider {
 
 
         const spawnOptions = workspace.rootPath ? { cwd: workspace.rootPath } : undefined;
-        // FIXME: not work for windows
+
+        let stdout = '/dev/stdout';
+        if (process.platform === 'win32') {
+            stdout = 'CON';
+        }
         const args = [textDocument.fileName,
-            '--export-fixes=/dev/stdout', '-extra-arg=-v'];
+        '--export-fixes=' + stdout, '-extra-arg=-v'];
 
         configuration.systemIncludePath.forEach(path => {
             const arg = '-extra-arg=-isystem' + path;
