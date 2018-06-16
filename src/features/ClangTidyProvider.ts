@@ -90,8 +90,7 @@ export default class ClangTidyProvider {
     public provideCodeActions(document: TextDocument, range: Range, context: CodeActionContext,
         token: CancellationToken): Command[] {
 
-        if (context.diagnostics.length > 0)
-        {
+        if (context.diagnostics.length > 0) {
             const diagnostics = context.diagnostics[0];
             return [{
                 title: 'Apply clang-tidy fix',
