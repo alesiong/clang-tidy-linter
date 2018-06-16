@@ -35,7 +35,7 @@ export default class ClangTidyProvider {
 
         const spawnOptions = workspace.rootPath ? { cwd: workspace.rootPath } : undefined;
 
-        let stdout = '/dev/stdout';
+        let stdout = '-';
         if (process.platform === 'win32') {
             stdout = 'CON';
         }
