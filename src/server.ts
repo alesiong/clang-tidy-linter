@@ -3,7 +3,7 @@
 import {
     createConnection, TextDocuments, TextDocument, Diagnostic, DiagnosticSeverity,
     ProposedFeatures, InitializeParams, DidChangeConfigurationNotification, Range,
-    CodeActionParams, CodeAction, CodeActionKind, WorkspaceEdit, TextEdit
+    CodeActionParams, CodeAction, CodeActionKind, TextEdit
 } from 'vscode-languageserver';
 import Uri from 'vscode-uri';
 import { spawn } from 'child_process';
@@ -167,7 +167,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
 async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[]> {
     const diagnostics: Diagnostic[] = params.context.diagnostics;
-    const actions: CodeAction[] = []
+    const actions: CodeAction[] = [];
     diagnostics
         .filter(d => d.source === 'Clang Tidy')
         .forEach(d => {

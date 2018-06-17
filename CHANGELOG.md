@@ -1,7 +1,14 @@
-# Change Log
-All notable changes to the "clang-tidy-linter" extension will be documented in this file.
+# Changelog
+All notable changes to this project will be documented in this file.
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
+and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-- Initial release
+
+## [0.0.1]
+Add basic diagnostic support by clang-tidy.
+
+## [0.0.2]
+Support Windows (not tested).
+Add code action(quick fixes) support.
+Move to the [language server protocol(LSP)](https://microsoft.github.io/language-server-protocol/) structure.

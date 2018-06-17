@@ -6,7 +6,7 @@ This extension uses [clang-tidy](http://clang.llvm.org/extra/clang-tidy/) to lin
 
 ## Features
 
-Currently you can only use this extension as a linter, the auto-fix will be added in the future.
+Basic diagnostic(linter) and quick fixes for the C/C++ source files with the clang-tidy.
 
 ## Requirements
 
@@ -28,15 +28,36 @@ If you want to configure the checks of clang tidy, create a `.clang-tidy` file i
 
 ## Known Issues
 
+Source files can only be lint when you save or open it.
 
+You have to modify `clangTidy.extraCompilerArgs` setting if your C/C++ project has custom include paths.
 
 ## Contribution
+
 Repository: <https://github.com/alesiong/clang-tidy-linter>
 
-## Release Notes
+I'm a beginner to vscode extension development, so if you have any suggestions, don't hesitate to post issues and/or pull requests.
 
-Users appreciate release notes as you update your extension.
+## Road Map (TODOs)
+
+1. Refactor `server.ts`, it is now in a very bad structure (with lots of functions and global variables)
+
+2. Write tests
+
+3. Support for on-the-fly linting (if possible)
+
+4. Support for custom include paths through settings and by reading `.vscode/c_cpp_properties.json`
+
+5. Ship clang-tidy binaries
+
+
+## Release Notes
 
 ### 0.0.1
 
 The very first beta version published to the market.
+
+### 0.0.2
+
+Support Windows (not tested).
+Add code actions(quick fixes) support.
