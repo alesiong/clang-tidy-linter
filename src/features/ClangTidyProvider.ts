@@ -90,12 +90,15 @@ export default class ClangTidyProvider {
     public provideCodeActions(document: TextDocument, range: Range, context: CodeActionContext,
         token: CancellationToken): Command[] {
 
-        const diagnostics = context.diagnostics[0];
-        return [{
-            title: 'Apply clang-tidy fix',
-            command: ClangTidyProvider.commandId,
-            arguments: [document, diagnostics.range, diagnostics.message]
-        }];
+        if (context.diagnostics.length > 0) {
+            const diagnostics = context.diagnostics[0];
+            return [{
+                title: 'Apply clang-tidy fix',
+                command: ClangTidyProvider.commandId,
+                arguments: [document, diagnostics.range, diagnostics.message]
+            }];
+        }
+        return [];
     }
 
     public activate(subscriptions: Disposable[]) {
