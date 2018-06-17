@@ -7,7 +7,14 @@
     "engines": {
         "vscode": "^1.24.0"
     },
-    "repository": "https://github.com/alesiong/clang-tidy-linter",
+    "homepage": "https://github.com/alesiong/clang-tidy-linter/blob/master/README.md",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/alesiong/clang-tidy-linter"
+    },
+    "bugs": {
+        "url": "https://github.com/alesiong/clang-tidy-linter/issues"
+    },
     "license": "SEE LICENSE IN LICENSE",
     "categories": [
         "Linters"
@@ -82,6 +89,9 @@
         "vscode": "^1.1.6"
     },
     "dependencies": {
-        "js-yaml": "^3.12.0"
+        "js-yaml": "^3.12.0",
+        "vscode-languageclient": "^4.2.1",
+        "vscode-languageserver": "^4.2.1",
+        "vscode-uri": "^1.0.5"
     }
 }
