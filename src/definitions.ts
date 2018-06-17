@@ -15,7 +15,7 @@ interface ClangTidyDiagnostic {
     Message: string;
     FileOffset: number;
     FilePath: string;
-    Replacements: ClangTidyReplacement[];
+    Replacements?: ClangTidyReplacement[];
 }
 
 interface ClangTidyReplacement {

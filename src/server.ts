@@ -2,7 +2,8 @@
 
 import {
     createConnection, TextDocuments, TextDocument, Diagnostic, DiagnosticSeverity,
-    ProposedFeatures, InitializeParams, DidChangeConfigurationNotification, Range
+    ProposedFeatures, InitializeParams, DidChangeConfigurationNotification, Range,
+    CodeActionParams, CodeAction, CodeActionKind, WorkspaceEdit, TextEdit
 } from 'vscode-languageserver';
 import Uri from 'vscode-uri';
 import { spawn } from 'child_process';
@@ -10,7 +11,6 @@ import { safeLoad } from 'js-yaml';
 
 
 const connection = createConnection(ProposedFeatures.all);
-
 const documents = new TextDocuments();
 
 let hasConfigurationCapability: boolean = false;
@@ -39,7 +39,8 @@ connection.onInitialize((params: InitializeParams) => {
     //     capabilities.textDocument.publishDiagnostics.relatedInformation);
     return {
         capabilities: {
-            textDocumentSync: documents.syncKind
+            textDocumentSync: documents.syncKind,
+            codeActionProvider: true
         }
     };
 });
@@ -64,14 +65,20 @@ connection.onDidChangeConfiguration(change => {
     documents.all().forEach(validateTextDocument);
 });
 
+connection.onCodeAction(provideCodeActions);
+
 documents.onDidClose(e => {
     documentConfig.delete(e.document.uri);
 });
 
-documents.onDidChangeContent(change => {
-    console.log('change');
-    validateTextDocument(change.document);
+documents.onDidSave(file => {
+    validateTextDocument(file.document);
 });
+
+documents.onDidOpen(file => {
+    validateTextDocument(file.document);
+});
+
 
 // Get config by document url (resource)
 function getDocumentConfig(resource: string): Thenable<Configuration> {
@@ -90,9 +97,7 @@ function getDocumentConfig(resource: string): Thenable<Configuration> {
 }
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
-    console.log('validate');
     const configuration = await getDocumentConfig(textDocument.uri);
-    console.log(configuration.executable);
     const lintLanguages = new Set(configuration.lintLanguages);
     if (!lintLanguages.has(textDocument.languageId)) {
         return;
@@ -105,7 +110,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     // const spawnOptions = workspace.rootPath ? { cwd: workspace.rootPath } : undefined;
 
     const args = [Uri.parse(textDocument.uri).fsPath,
-        '--export-fixes=-', '-extra-arg=-v', '-header-filter=.*'];
+        '--export-fixes=-', '-header-filter=.*'];
 
     configuration.systemIncludePath.forEach(path => {
         const arg = '-extra-arg=-isystem' + path;
@@ -117,14 +122,11 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     });
 
     const childProcess = spawn(configuration.executable, args, spawnOptions);
-    console.log(spawnOptions);
+
     childProcess.on('error', console.error);
     if (childProcess.pid) {
         childProcess.stdout.on('data', (data) => {
             decoded += data;
-        });
-        childProcess.stderr.on('data', d => {
-            console.warn(d.toString());
         });
         childProcess.stdout.on('end', () => {
             const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
@@ -135,13 +137,25 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
                     const name: string = element.DiagnosticName;
                     const severity = name.endsWith('error') ?
                         DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
-                    const message: string = `[Clang Tidy]${element.Message} (${name})`;
+                    const message: string = `${element.Message} (${name})`;
                     const offset: number = element.FileOffset;
-                    const startPosition = textDocument.positionAt(offset);
 
-                    const range = Range.create(startPosition, startPosition);
-                    diagnostics.push(Diagnostic.create(range, message, severity));
+                    let range: Range;
+                    if (element.Replacements && element.Replacements.length > 0) {
+                        console.log(element.Replacements.length);
+                        const start = element.Replacements[0].Offset;
+                        const end = start + element.Replacements[0].Length;
+                        range = Range.create(textDocument.positionAt(start),
+                            textDocument.positionAt(end));
+                    } else {
+                        const startPosition = textDocument.positionAt(offset);
+                        range = Range.create(startPosition, startPosition);
+                    }
+                    diagnostics.push(Diagnostic.create(range, message, severity,
+                        element.Replacements && JSON.stringify(element.Replacements),
+                        'Clang Tidy'));
                 });
+
                 connection.sendDiagnostics({
                     uri: textDocument.uri,
                     diagnostics
@@ -149,6 +163,42 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             }
         });
     }
+}
+
+async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[]> {
+    const diagnostics: Diagnostic[] = params.context.diagnostics;
+    const actions: CodeAction[] = []
+    diagnostics
+        .filter(d => d.source === 'Clang Tidy')
+        .forEach(d => {
+            if (d.code && typeof d.code === 'string') {
+                const replacement = JSON.parse(d.code) as ClangTidyReplacement[];
+                replacement.forEach(r => {
+                    const changes: { [uri: string]: TextEdit[]; } = {};
+                    changes[params.textDocument.uri] = [{
+                        range: d.range,
+                        newText: r.ReplacementText
+                    }];
+
+                    actions.push({
+                        title: '[Clang Tidy] Change to ' + r.ReplacementText,
+                        diagnostics: [d],
+                        kind: CodeActionKind.QuickFix,
+                        edit: {
+                            changes
+                        }
+                    });
+                });
+
+            } else {
+                actions.push({
+                    title: 'Apply clang-tidy fix',
+                    diagnostics: [d],
+                    kind: CodeActionKind.QuickFix
+                });
+            }
+        });
+    return actions;
 }
 
 documents.listen(connection);
