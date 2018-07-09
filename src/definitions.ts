@@ -3,6 +3,7 @@ interface Configuration {
     systemIncludePath: string[];
     lintLanguages: string[];
     extraCompilerArgs: string[];
+    buildPath: string;
 }
 
 interface ClangTidyResult {
