@@ -51,6 +51,10 @@ export default class ClangTidyProvider {
             args.push('-extra-arg=' + arg);
         });
 
+        if (configuration.buildPath !== "") {
+            args.push('-p=' + configuration.buildPath);
+        }
+
         const childProcess = spawn(configuration.executable, args, spawnOptions);
         console.log(spawnOptions);
         childProcess.on('error', console.error);

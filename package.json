@@ -69,6 +69,11 @@
                         "-Weverything"
                     ],
                     "description": "Extra arguments pass to compiler (-extra-arg=)"
+                },
+                "clangTidy.buildPath": {
+                    "type": "string",
+                    "default": "${workspaceRoot}/build",
+                    "description": "Build path to compile_commands.json"
                 }
             }
         }

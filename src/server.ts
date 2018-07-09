@@ -21,7 +21,8 @@ const defaultConfig: Configuration = {
     executable: 'clang-tidy',
     systemIncludePath: [],
     lintLanguages: ["c", "cpp"],
-    extraCompilerArgs: ["-Weverything"]
+    extraCompilerArgs: ["-Weverything"],
+    buildPath: "${workspaceRoot}/build"
 };
 
 let globalConfig = defaultConfig;
