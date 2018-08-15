@@ -121,6 +121,17 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
         args.push('-extra-arg=' + arg);
     });
 
+    let argsNbr = configuration.clangCheckArgs.length;
+    if (argsNbr > 0) {
+        let checkArgs = "";
+        configuration.clangCheckArgs.forEach(arg => {
+            checkArgs += arg;
+            argsNbr > 0 ? checkArgs += ',' : 0;
+            argsNbr--;
+        });
+        args.push('-checks=' + checkArgs);
+    }
+
     const childProcess = spawn(configuration.executable, args, spawnOptions);
 
     childProcess.on('error', console.error);

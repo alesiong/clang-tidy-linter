@@ -69,7 +69,14 @@
                         "-Weverything"
                     ],
                     "description": "Extra arguments pass to compiler (-extra-arg=)"
-                }
+                },
+                "clangTidy.clangCheckArgs": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"description": "Clang static analyzer checks to run with clang-tidy"
+				}
             }
         }
     },
