@@ -103,7 +103,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     }
 
     generateDiagnostics(textDocument, configuration,
-                        workspaceFolders ? workspaceFolders : [], "",
+                        workspaceFolders ? workspaceFolders : [],
                         diagnostics => {
                             for (const filePath in diagnostics) {
                                 const diagnosticsParam: PublishDiagnosticsParams = {

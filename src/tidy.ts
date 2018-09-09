@@ -9,16 +9,33 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 // Invoke clang-tidy and transform it issues into a file/Diagnostics map.
+//
+// This invoke clang-tidy with the configured arguments and parses the results into vscode-languageserver.Diagnostic
+// objects. Each diagnostic contains the set of replacements clang-tidy recommends to address the issue.
+// The original clang-tidy recommendations are stored in the Diagnostic.code member in JSON string format. This can be
+// parsed into a ClangTidyDiagnostic.
+//
+// The ClangTidyDiagnostic and associated ClangTidyReplacement objects are extended to each contain a Range member.
+// This member is an alias for the FileOffset/Offset + Length members into a vscode-languageserver.Range value. This
+// better supports integration with vscode we have sufficient data to more easily resolve the range value here rather
+// than later.
+//
+// textDocument: The TextDocument to lint using clang-tidy
+// configuration: Details of the clang-tidy-linter extension configuration; i.e., how to invoke clang-tidy.
+// onParsed: Callback to invoke once the diagnostics are generated. The argument holds a dictionary of results.
+//      These are keyed on absolute file path (not URI) and the array of associated Diagnostics for that file.
 export function generateDiagnostics(
     textDocument: TextDocument, configuration: Configuration,
-    workspaceFolders: WorkspaceFolder[], messagePrefix: string,
+    workspaceFolders: WorkspaceFolder[],
     onParsed: (diagnostics: { [id: string]: Diagnostic[] }) => void) {
 
     let decoded = '';
-    // Dictionary of collated diagnostics keyed on absolute file name.
+    // Dictionary of collated diagnostics keyed on absolute file name. This supports source files generating
+    // diagnostics for header files.
     const diagnostics: { [id: string]: Diagnostic[]; } = {};
     // Dictionary of text documents used to resolve character offsets into ranges.
-    // We need to support the textDocument and additional included files (e.g., header files).
+    // We need to support the textDocument and additional included files (e.g., header files) and use it to resolve
+    // file level character offsets into line/character offsets used by VSCode.
     // Keyed on absolute file name.
     const docs: { [id: string]: TextDocument } = {};
 
@@ -68,7 +85,7 @@ export function generateDiagnostics(
                     const name: string = element.DiagnosticName;
                     const severity = name.endsWith('error') ?
                         DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
-                    const message: string = `${messagePrefix}${element.Message} (${name})`;
+                    const message: string = `${element.Message} (${name})`;
 
                     // Helper function to ensure absolute paths and required registrations are made.
                     function fixPath(filePath: string): string {
@@ -133,16 +150,6 @@ export function generateDiagnostics(
                             start: doc.positionAt(element.FileOffset),
                             end: doc.positionAt(element.FileOffset)
                         };
-
-                        // // Adjust the range match the first replacement with the same character offset.
-                        // if (element.Replacements) {
-                        //     for (const replacement of element.Replacements) {
-                        //         if (replacement.Offset === element.FileOffset) {
-                        //             range.end = doc.positionAt(replacement.Offset + replacement.Length);
-                        //             break;
-                        //         }
-                        //     }
-                        // }
 
                         const diagnostic: Diagnostic = Diagnostic.create(element.Range, message, severity,
                             element.Replacements && JSON.stringify(element.Replacements), clangTidySourceName);
