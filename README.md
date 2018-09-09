@@ -24,6 +24,10 @@ You may need to modify some default settings to get this extension to work for n
 
 `clangTidy.extraCompilerArgs`: Extra arguments that pass to the **compiler** (not `clang-tidy`).
 
+`clangTidy.headerFilter`: Value for `-header-filter` command line argument.
+
+`clangTidy.args`: Additional arguments to pass to `clang-tidy`
+
 If you want to configure the checks of clang tidy, create a `.clang-tidy` file in your working directory (please refer to the `clang-tidy`'s document for detail).
 
 ## Known Issues
@@ -50,6 +54,11 @@ I'm a beginner to vscode extension development, so if you have any suggestions, 
 
 5. Ship clang-tidy binaries
 
+## Know Issues
+
+- When using `-p compile_commands.json`, saving a header or opening a header file for the first time can clear existing quick fixes for that file.
+  - To regenerate the fixes, touch a cpp file which includes that header file.
+  - `compile_commands.json` can be generated from CMake when `CMAKE_EXPORT_COMPILE_COMMANDS` is on.
 
 ## Release Notes
 

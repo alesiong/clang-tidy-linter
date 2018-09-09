@@ -1,14 +1,11 @@
 'use strict';
 
 import {
-    createConnection, TextDocuments, TextDocument, Diagnostic, DiagnosticSeverity,
-    ProposedFeatures, InitializeParams, DidChangeConfigurationNotification, Range,
-    CodeActionParams, CodeAction, CodeActionKind, TextEdit
+    createConnection, TextDocuments, TextDocument, Diagnostic,
+    ProposedFeatures, InitializeParams, DidChangeConfigurationNotification,
+    CodeActionParams, CodeAction, CodeActionKind, TextEdit, PublishDiagnosticsParams,
 } from 'vscode-languageserver';
-import Uri from 'vscode-uri';
-import { spawn } from 'child_process';
-import { safeLoad } from 'js-yaml';
-
+import { generateDiagnostics } from './tidy';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
@@ -21,13 +18,14 @@ const defaultConfig: Configuration = {
     executable: 'clang-tidy',
     systemIncludePath: [],
     lintLanguages: ["c", "cpp"],
-    extraCompilerArgs: ["-Weverything"]
+    extraCompilerArgs: ["-Weverything"],
+    headerFilter: ".*",
+    args: []
 };
 
 let globalConfig = defaultConfig;
 
 const documentConfig: Map<string, Thenable<Configuration>> = new Map();
-
 
 connection.onInitialize((params: InitializeParams) => {
     const capabilities = params.capabilities;
@@ -98,71 +96,23 @@ function getDocumentConfig(resource: string): Thenable<Configuration> {
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const configuration = await getDocumentConfig(textDocument.uri);
+    const workspaceFolders  = await connection.workspace.getWorkspaceFolders();
     const lintLanguages = new Set(configuration.lintLanguages);
     if (!lintLanguages.has(textDocument.languageId)) {
         return;
     }
 
-    let decoded = '';
-    const diagnostics: Diagnostic[] = [];
-    const spawnOptions = undefined;
-
-    // const spawnOptions = workspace.rootPath ? { cwd: workspace.rootPath } : undefined;
-
-    const args = [Uri.parse(textDocument.uri).fsPath,
-        '--export-fixes=-', '-header-filter=.*'];
-
-    configuration.systemIncludePath.forEach(path => {
-        const arg = '-extra-arg=-isystem' + path;
-        args.push(arg);
-    });
-
-    configuration.extraCompilerArgs.forEach(arg => {
-        args.push('-extra-arg=' + arg);
-    });
-
-    const childProcess = spawn(configuration.executable, args, spawnOptions);
-
-    childProcess.on('error', console.error);
-    if (childProcess.pid) {
-        childProcess.stdout.on('data', (data) => {
-            decoded += data;
-        });
-        childProcess.stdout.on('end', () => {
-            const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
-            if (match && match[0]) {
-                const yaml = match[0];
-                const parsed = safeLoad(yaml) as ClangTidyResult;
-                parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
-                    const name: string = element.DiagnosticName;
-                    const severity = name.endsWith('error') ?
-                        DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
-                    const message: string = `${element.Message} (${name})`;
-                    const offset: number = element.FileOffset;
-
-                    let range: Range;
-                    if (element.Replacements && element.Replacements.length > 0) {
-                        console.log(element.Replacements.length);
-                        const start = element.Replacements[0].Offset;
-                        const end = start + element.Replacements[0].Length;
-                        range = Range.create(textDocument.positionAt(start),
-                            textDocument.positionAt(end));
-                    } else {
-                        const startPosition = textDocument.positionAt(offset);
-                        range = Range.create(startPosition, startPosition);
-                    }
-                    diagnostics.push(Diagnostic.create(range, message, severity,
-                        element.Replacements && JSON.stringify(element.Replacements),
-                        'Clang Tidy'));
-                });
-
-                connection.sendDiagnostics({
-                    uri: textDocument.uri,
-                    diagnostics
-                });
-            }
-        });
-    }
+    generateDiagnostics(textDocument, configuration,
+                        workspaceFolders ? workspaceFolders : [], "",
+                        diagnostics => {
+                            for (const filePath in diagnostics) {
+                                const diagnosticsParam: PublishDiagnosticsParams = {
+                                    uri: "file://" + filePath,
+                                    diagnostics: diagnostics[filePath]
+                                };
+                                connection.sendDiagnostics(diagnosticsParam);
+                            }
+                        });
 }
 
 async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[]> {
@@ -171,28 +121,38 @@ async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[
     diagnostics
         .filter(d => d.source === 'Clang Tidy')
         .forEach(d => {
+            // console.warn("d.code: " + d.code);
             if (d.code && typeof d.code === 'string') {
-                const replacement = JSON.parse(d.code) as ClangTidyReplacement[];
-                replacement.forEach(r => {
-                    const changes: { [uri: string]: TextEdit[]; } = {};
-                    changes[params.textDocument.uri] = [{
-                        range: d.range,
-                        newText: r.ReplacementText
-                    }];
+                const replacements = JSON.parse(d.code) as ClangTidyReplacement[];
 
-                    actions.push({
-                        title: '[Clang Tidy] Change to ' + r.ReplacementText,
-                        diagnostics: [d],
-                        kind: CodeActionKind.QuickFix,
-                        edit: {
-                            changes
+                const changes: { [uri: string]: TextEdit[]; } = {};
+                for (const replacement of replacements) {
+                    // Only add replacement if we have a range. We should do.
+                    if (replacement.Range) {
+                        // console.warn("replacement: " + replacement.Range);
+                        if (!(params.textDocument.uri in changes)) {
+                            changes[params.textDocument.uri] = [];
                         }
-                    });
+
+                        changes[params.textDocument.uri].push({
+                            range: replacement.Range,
+                            newText: replacement.ReplacementText
+                        });
+                    }
+                }
+
+                actions.push({
+                    title: '[Clang Tidy] Change to ' + replacements[0].ReplacementText,
+                    diagnostics: [d],
+                    kind: CodeActionKind.QuickFix,
+                    edit: {
+                        changes
+                    }
                 });
 
             } else {
                 actions.push({
-                    title: 'Apply clang-tidy fix',
+                    title: 'Apply clang-tidy fix [NYI]',
                     diagnostics: [d],
                     kind: CodeActionKind.QuickFix
                 });

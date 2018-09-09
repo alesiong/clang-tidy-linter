@@ -1,7 +1,6 @@
 'use strict';
 
 import * as path from 'path';
-// import ClangTidyProvider from './features/ClangTidyProvider';
 import { ExtensionContext, workspace } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind }
     from 'vscode-languageclient';
@@ -9,9 +8,6 @@ import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind }
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
-    // const linter = new ClangTidyProvider();
-    // linter.activate(context.subscriptions);
-    // languages.registerCodeActionsProvider({ scheme: 'file', language: 'cpp' }, linter);
     const serverModule = context.asAbsolutePath(path.join('out', 'server.js'));
     const debugOptions = { execArgv: ["--nolazy", "--inspect=6009"] };
 
