@@ -27,12 +27,13 @@ import * as fs from 'fs';
 export function generateDiagnostics(
     textDocument: TextDocument, configuration: Configuration,
     workspaceFolders: WorkspaceFolder[],
-    onParsed: (diagnostics: { [id: string]: Diagnostic[] }) => void) {
+    onParsed: (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] }, diagnosticsCount: number) => void) {
 
     let decoded = '';
     // Dictionary of collated diagnostics keyed on absolute file name. This supports source files generating
     // diagnostics for header files.
     const diagnostics: { [id: string]: Diagnostic[]; } = {};
+    let diagnosticsCount: number = 0;
     // Dictionary of text documents used to resolve character offsets into ranges.
     // We need to support the textDocument and additional included files (e.g., header files) and use it to resolve
     // file level character offsets into line/character offsets used by VSCode.
@@ -68,7 +69,7 @@ export function generateDiagnostics(
         });
     }
 
-    // console.warn("clang-tidy with args[1]: " + args);
+    // console.warn("clang-tidy with args: " + args);
     const childProcess = spawn(configuration.executable, args);
 
     childProcess.on('error', console.error);
@@ -155,11 +156,12 @@ export function generateDiagnostics(
                             element.Replacements && JSON.stringify(element.Replacements), clangTidySourceName);
 
                         diagnostics[element.FilePath].push(diagnostic);
+                        ++diagnosticsCount;
                     }
                 });
             }
 
-            onParsed(diagnostics);
+            onParsed(textDocument, diagnostics, diagnosticsCount);
         });
     }
 }
