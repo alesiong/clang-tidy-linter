@@ -133,38 +133,14 @@ function getDocumentConfig(resource: string): Thenable<Configuration> {
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const workspaceFolders = await connection.workspace.getWorkspaceFolders();
-    const cppToolsIncludePaths: string[] = [];
-    let cStandard: string = '';
-    let cppStandard: string = '';
-
-
-    if (workspaceFolders) {
-        workspaceFolders.forEach(folder => {
-            const config = path.join(Uri.parse(folder.uri).fsPath, '.vscode/c_cpp_properties.json');
-            if (fs.existsSync(config)) {
-                const content = fs.readFileSync(config, { encoding: 'utf8' });
-                const configJson = JSON.parse(content);
-                if (configJson.configurations) {
-                    configJson.configurations.forEach((config: any) => {
-                        if (config.includePath) {
-                            config.includePath.forEach((path: string) => {
-                                cppToolsIncludePaths.push(path.replace('${workspaceFolder}', '.'));
-                            });
-                        }
-                        cStandard = config.cStandard;
-                        cppStandard = config.cppStandard;
-                    });
-                }
-            }
-        });
-    }
-
     const configuration = await getDocumentConfig(textDocument.uri);
-    const workspaceFolders = await connection.workspace.getWorkspaceFolders();
     const lintLanguages = new Set(configuration.lintLanguages);
+
+
     if (!lintLanguages.has(textDocument.languageId)) {
         return;
     }
+
 
     const folders = workspaceFolders ? workspaceFolders : [];
 
@@ -174,7 +150,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
         const mainFilePath: string = Uri.parse(textDocument.uri).fsPath;
         let sentDiagnostics: boolean = false;
 
-        if (diagnosticsCount == 0 && allowRecursion) {
+        if (diagnosticsCount === 0 && allowRecursion) {
             // No diagnostics. Could be because of the build database issue.
             // Recurse on the best alternative file.
             allowRecursion = false;
@@ -183,7 +159,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             // console.warn("Alternative: " + (referenceDoc ? referenceDoc.uri : ""));
             if (referenceDoc) {
                 sentDiagnostics = true;
-                generateDiagnostics(referenceDoc, configuration, folders, processResults);
+                generateDiagnostics(connection, referenceDoc, configuration, folders, processResults);
             }
         }
 
@@ -215,7 +191,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     };
 
 
-    generateDiagnostics(textDocument, configuration, folders, processResults);
+    generateDiagnostics(connection, textDocument, configuration, folders, processResults);
 }
 
 async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[]> {

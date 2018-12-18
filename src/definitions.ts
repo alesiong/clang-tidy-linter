@@ -38,3 +38,9 @@ interface ClangTidyReplacement {
     ReplacementText: string;
     Range?: Range;  // Offset and length translated into line character
 }
+
+interface CppToolsConfigs {
+    cppToolsIncludePaths: string[];
+    cStandard: string;
+    cppStandard: string;
+}

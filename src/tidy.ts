@@ -1,6 +1,6 @@
 
 import {
-    Diagnostic, DiagnosticSeverity, TextDocument, WorkspaceFolder
+    Diagnostic, DiagnosticSeverity, TextDocument, WorkspaceFolder, Connection
 } from 'vscode-languageserver';
 import { spawn } from 'child_process';
 import { safeLoad } from 'js-yaml';
@@ -25,9 +25,11 @@ import * as fs from 'fs';
 // onParsed: Callback to invoke once the diagnostics are generated. The argument holds a dictionary of results.
 //      These are keyed on absolute file path (not URI) and the array of associated Diagnostics for that file.
 export function generateDiagnostics(
+    connection: Connection,
     textDocument: TextDocument, configuration: Configuration,
     workspaceFolders: WorkspaceFolder[],
-    onParsed: (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] }, diagnosticsCount: number) => void) {
+    onParsed: (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] },
+        diagnosticsCount: number) => void) {
 
     let decoded = '';
     // Dictionary of collated diagnostics keyed on absolute file name. This supports source files generating
@@ -40,12 +42,20 @@ export function generateDiagnostics(
     // Keyed on absolute file name.
     const docs: { [id: string]: TextDocument } = {};
 
+    let cppToolsConfigs: CppToolsConfigs | null = null;
+    if (workspaceFolders) {
+        cppToolsConfigs = readConfigFromCppTools(workspaceFolders);
+    }
+
     // Immediately add entries for the textDocument.
     diagnostics[Uri.parse(textDocument.uri).fsPath] = [];
     docs[Uri.parse(textDocument.uri).fsPath] = textDocument;
 
-    const args = [Uri.parse(textDocument.uri).fsPath,
-        '--export-fixes=-', '-header-filter=' + configuration.headerFilter];
+    const args = [Uri.parse(textDocument.uri).fsPath, '--export-fixes=-'];
+
+    if (configuration.headerFilter) {
+        args.push('-header-filter=' + configuration.headerFilter);
+    }
 
     configuration.systemIncludePath.forEach(path => {
         const arg = '-extra-arg=-isystem' + path;
@@ -53,12 +63,34 @@ export function generateDiagnostics(
     });
 
     configuration.extraCompilerArgs.forEach(arg => {
-        args.push('-extra-arg=' + arg);
+        args.push('-extra-arg-before=' + arg);
     });
 
     configuration.args.forEach(arg => {
         args.push(arg);
     });
+
+    if (cppToolsConfigs) {
+        const { cppToolsIncludePaths, cStandard, cppStandard } = cppToolsConfigs;
+        if (textDocument.languageId === 'c') {
+            args.push('-extra-arg-before=-xc');
+            if (cStandard) {
+                args.push('-extra-arg-before=-std=' + cStandard);
+            }
+        }
+
+        if (textDocument.languageId === 'cpp') {
+            args.push('-extra-arg-before=-xc++');
+            if (cppStandard) {
+                args.push('-extra-arg-before=-std=' + cppStandard);
+            }
+        }
+
+        cppToolsIncludePaths.forEach(path => {
+            const arg = '-extra-arg=-I' + path;
+            args.push(arg);
+        });
+    }
 
     // Replace ${workspaceFolder} in arguments. Seem to be a number of issues open regarding
     // support for this in the VSCode API, but I can't find a solution.
@@ -143,25 +175,54 @@ export function generateDiagnostics(
                                 };
                             }
                         }
-
-                        // Create a VSCode Diagnostic. Use the original textDocument if we fail to resolve the document
-                        // path. This ensures the user gets feedback.
-                        const doc = element.FilePath in docs ? docs[element.FilePath] : textDocument;
-                        element.Range = {
-                            start: doc.positionAt(element.FileOffset),
-                            end: doc.positionAt(element.FileOffset)
-                        };
-
-                        const diagnostic: Diagnostic = Diagnostic.create(element.Range, message, severity,
-                            element.Replacements && JSON.stringify(element.Replacements), clangTidySourceName);
-
-                        diagnostics[element.FilePath].push(diagnostic);
-                        ++diagnosticsCount;
                     }
+                    // Create a VSCode Diagnostic. Use the original textDocument if we fail to resolve the document
+                    // path. This ensures the user gets feedback.
+                    const doc = element.FilePath in docs ? docs[element.FilePath] : textDocument;
+                    element.Range = {
+                        start: doc.positionAt(element.FileOffset),
+                        end: doc.positionAt(element.FileOffset)
+                    };
+
+                    const diagnostic: Diagnostic = Diagnostic.create(element.Range, message, severity,
+                        element.Replacements && JSON.stringify(element.Replacements), clangTidySourceName);
+
+                    diagnostics[element.FilePath].push(diagnostic);
+                    ++diagnosticsCount;
+
                 });
             }
 
             onParsed(textDocument, diagnostics, diagnosticsCount);
         });
     }
+}
+
+function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsConfigs {
+    const cppToolsIncludePaths: string[] = [];
+    let cStandard: string = '';
+    let cppStandard: string = '';
+
+    workspaceFolders.forEach(folder => {
+        const config = path.join(Uri.parse(folder.uri).fsPath, '.vscode/c_cpp_properties.json');
+        if (fs.existsSync(config)) {
+            const content = fs.readFileSync(config, { encoding: 'utf8' });
+            const configJson = JSON.parse(content);
+            if (configJson.configurations) {
+                configJson.configurations.forEach((config: any) => {
+                    if (config.includePath) {
+                        config.includePath.forEach((path: string) => {
+                            cppToolsIncludePaths.push(path.replace('${workspaceFolder}', '.'));
+                        });
+                    }
+                    cStandard = config.cStandard;
+                    cppStandard = config.cppStandard;
+                });
+            }
+        }
+    });
+
+    return {
+        cppToolsIncludePaths, cStandard, cppStandard
+    };
 }
