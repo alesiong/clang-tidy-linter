@@ -1,18 +1,20 @@
 'use strict';
 
 import {
-    createConnection, TextDocuments, TextDocument, Diagnostic, DiagnosticSeverity,
-    ProposedFeatures, InitializeParams, DidChangeConfigurationNotification, Range,
-    CodeActionParams, CodeAction, CodeActionKind, TextEdit
+    createConnection, TextDocuments, TextDocument, Diagnostic,
+    ProposedFeatures, InitializeParams, DidChangeConfigurationNotification,
+    CodeActionParams, CodeAction, CodeActionKind, TextEdit, PublishDiagnosticsParams,
 } from 'vscode-languageserver';
 import Uri from 'vscode-uri';
-import { spawn } from 'child_process';
-import { safeLoad } from 'js-yaml';
-import * as fs from 'fs';
+import { generateDiagnostics } from './tidy';
 import * as path from 'path';
+import * as fs from 'fs';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
+// Keyed on files that raised diagnostics, but were not the mail file; i.e., header files.
+// Used to recompile header files as they won't generate diagnostics when using a build database (-p option).
+const fileAssociationMap: { [id: string]: string } = {};
 
 let hasConfigurationCapability: boolean = false;
 let hasWorkspaceFolderCapability: boolean = false;
@@ -22,13 +24,14 @@ const defaultConfig: Configuration = {
     executable: 'clang-tidy',
     systemIncludePath: [],
     lintLanguages: ["c", "cpp"],
-    extraCompilerArgs: ["-Weverything"]
+    extraCompilerArgs: ["-Weverything"],
+    headerFilter: ".*",
+    args: []
 };
 
 let globalConfig = defaultConfig;
 
 const documentConfig: Map<string, Thenable<Configuration>> = new Map();
-
 
 connection.onInitialize((params: InitializeParams) => {
     const capabilities = params.capabilities;
@@ -81,6 +84,37 @@ documents.onDidOpen(file => {
 });
 
 
+function getAlternativeDoc(filePath: string, languageId: string): TextDocument | undefined {
+    // Try associated file map.
+    if (filePath in fileAssociationMap) {
+        const aliasDocPath = fileAssociationMap[filePath];
+        if (fs.existsSync(aliasDocPath)) {
+            const referenceDoc = TextDocument.create("file://" + aliasDocPath,
+                languageId, 0,
+                fs.readFileSync(aliasDocPath).toString());
+            return referenceDoc;
+        }
+    }
+
+    // Assume it's a header file and look for a matching source file in the same directory.
+    // It would be better to query VSCode for this as it has better overall visibility of matching source to header.
+    const basePath = path.parse(Uri.parse(filePath).fsPath);
+    const tryExtensions = ["c", "cpp", "cxx"];
+
+    for (const ext of tryExtensions) {
+        const tryPath = path.join(basePath.dir, basePath.name + "." + ext);
+        // console.warn("Try: " + tryPath);
+        if (fs.existsSync(tryPath)) {
+            const referenceDoc = TextDocument.create("file://" + tryPath,
+                languageId, 0,
+                fs.readFileSync(tryPath).toString());
+            return referenceDoc;
+        }
+    }
+
+    return undefined;
+}
+
 // Get config by document url (resource)
 function getDocumentConfig(resource: string): Thenable<Configuration> {
     if (!hasConfigurationCapability) {
@@ -99,119 +133,65 @@ function getDocumentConfig(resource: string): Thenable<Configuration> {
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const workspaceFolders = await connection.workspace.getWorkspaceFolders();
-    const cppToolsIncludePaths: string[] = [];
-    let cStandard: string = '';
-    let cppStandard: string = '';
-
-
-    if (workspaceFolders) {
-        workspaceFolders.forEach(folder => {
-            const config = path.join(Uri.parse(folder.uri).fsPath, '.vscode/c_cpp_properties.json');
-            if (fs.existsSync(config)) {
-                const content = fs.readFileSync(config, { encoding: 'utf8' });
-                const configJson = JSON.parse(content);
-                if (configJson.configurations) {
-                    configJson.configurations.forEach((config: any) => {
-                        if (config.includePath) {
-                            config.includePath.forEach((path: string) => {
-                                cppToolsIncludePaths.push(path.replace('${workspaceFolder}', '.'));
-                            });
-                        }
-                        cStandard = config.cStandard;
-                        cppStandard = config.cppStandard;
-                    });
-                }
-            }
-        });
-    }
-
     const configuration = await getDocumentConfig(textDocument.uri);
     const lintLanguages = new Set(configuration.lintLanguages);
+
+
     if (!lintLanguages.has(textDocument.languageId)) {
         return;
     }
 
-    let decoded = '';
-    const diagnostics: Diagnostic[] = [];
-    const spawnOptions = undefined;
 
-    // const spawnOptions = workspace.rootPath ? { cwd: workspace.rootPath } : undefined;
-    const filePath = Uri.parse(textDocument.uri).fsPath;
-    const args = [filePath, '--export-fixes=-', '-p=.'];
+    const folders = workspaceFolders ? workspaceFolders : [];
 
-    configuration.systemIncludePath.forEach(path => {
-        const arg = '-extra-arg=-isystem' + path;
-        args.push(arg);
-    });
+    let allowRecursion: boolean = true;
+    const processResults = (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] },
+        diagnosticsCount: number) => {
+        const mainFilePath: string = Uri.parse(textDocument.uri).fsPath;
+        let sentDiagnostics: boolean = false;
 
-    configuration.extraCompilerArgs.forEach(arg => {
-        args.push('-extra-arg-before=' + arg);
-    });
-
-    if (textDocument.languageId === 'c') {
-        args.push('-extra-arg-before=-xc');
-        if (cStandard) {
-            args.push('-extra-arg-before=-std=' + cStandard);
-        }
-    }
-
-    if (textDocument.languageId === 'cpp') {
-        args.push('-extra-arg-before=-xc++');
-        if (cppStandard) {
-            args.push('-extra-arg-before=-std=' + cppStandard);
-        }
-    }
-
-    cppToolsIncludePaths.forEach(path => {
-        const arg = '-extra-arg=-isystem' + path;
-        args.push(arg);
-    });
-
-    const childProcess = spawn(configuration.executable, args, spawnOptions);
-
-    childProcess.on('error', console.error);
-    if (childProcess.pid) {
-        childProcess.stdout.on('data', (data) => {
-            decoded += data;
-        });
-        childProcess.stdout.on('end', () => {
-            console.log(decoded);
-            const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
-            if (match && match[0]) {
-                const yaml = match[0];
-                const parsed = safeLoad(yaml) as ClangTidyResult;
-                parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
-                    if (element.FilePath && element.FilePath !== filePath) {
-                        return;
-                    }
-                    const name: string = element.DiagnosticName;
-                    const severity = name.endsWith('error') ?
-                        DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
-                    const message: string = `${element.Message} (${name})`;
-                    const offset: number = element.FileOffset;
-
-                    let range: Range;
-                    if (element.Replacements && element.Replacements.length > 0) {
-                        const start = element.Replacements[0].Offset;
-                        const end = start + element.Replacements[0].Length;
-                        range = Range.create(textDocument.positionAt(start),
-                            textDocument.positionAt(end));
-                    } else {
-                        const startPosition = textDocument.positionAt(offset);
-                        range = Range.create(startPosition, startPosition);
-                    }
-                    diagnostics.push(Diagnostic.create(range, message, severity,
-                        element.Replacements && JSON.stringify(element.Replacements),
-                        'Clang Tidy'));
-                });
-
-                connection.sendDiagnostics({
-                    uri: textDocument.uri,
-                    diagnostics
-                });
+        if (diagnosticsCount === 0 && allowRecursion) {
+            // No diagnostics. Could be because of the build database issue.
+            // Recurse on the best alternative file.
+            allowRecursion = false;
+            const referenceDoc = getAlternativeDoc(mainFilePath, textDocument.languageId);
+            // console.warn("No diagnostics for " + mainFilePath);
+            // console.warn("Alternative: " + (referenceDoc ? referenceDoc.uri : ""));
+            if (referenceDoc) {
+                sentDiagnostics = true;
+                generateDiagnostics(connection, referenceDoc, configuration, folders, processResults);
             }
-        });
-    }
+        }
+
+        if (!sentDiagnostics) {
+            for (const filePath in diagnostics) {
+                const diagnosticsParam: PublishDiagnosticsParams = {
+                    uri: "file://" + filePath,
+                    diagnostics: diagnostics[filePath]
+                };
+                // Cache associated files.
+                if (filePath !== mainFilePath) {
+                    fileAssociationMap[filePath] = mainFilePath;
+                }
+                connection.sendDiagnostics(diagnosticsParam);
+
+                // if mainFilePath != textDocument.uri and textDocument.uri not i diagnostics, send empty
+                // for textDocument.uri
+                if (doc.uri !== textDocument.uri) {
+                    if (!(Uri.parse(textDocument.uri).fsPath in diagnostics)) {
+                        const diagnosticsParam: PublishDiagnosticsParams = {
+                            uri: textDocument.uri,
+                            diagnostics: []
+                        };
+                        connection.sendDiagnostics(diagnosticsParam);
+                    }
+                }
+            }
+        }
+    };
+
+
+    generateDiagnostics(connection, textDocument, configuration, folders, processResults);
 }
 
 async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[]> {
@@ -220,28 +200,38 @@ async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[
     diagnostics
         .filter(d => d.source === 'Clang Tidy')
         .forEach(d => {
+            // console.warn("d.code: " + d.code);
             if (d.code && typeof d.code === 'string') {
-                const replacement = JSON.parse(d.code) as ClangTidyReplacement[];
-                replacement.forEach(r => {
-                    const changes: { [uri: string]: TextEdit[]; } = {};
-                    changes[params.textDocument.uri] = [{
-                        range: d.range,
-                        newText: r.ReplacementText
-                    }];
+                const replacements = JSON.parse(d.code) as ClangTidyReplacement[];
 
-                    actions.push({
-                        title: '[Clang Tidy] Change to ' + r.ReplacementText,
-                        diagnostics: [d],
-                        kind: CodeActionKind.QuickFix,
-                        edit: {
-                            changes
+                const changes: { [uri: string]: TextEdit[]; } = {};
+                for (const replacement of replacements) {
+                    // Only add replacement if we have a range. We should do.
+                    if (replacement.Range) {
+                        // console.warn("replacement: " + replacement.Range);
+                        if (!(params.textDocument.uri in changes)) {
+                            changes[params.textDocument.uri] = [];
                         }
-                    });
+
+                        changes[params.textDocument.uri].push({
+                            range: replacement.Range,
+                            newText: replacement.ReplacementText
+                        });
+                    }
+                }
+
+                actions.push({
+                    title: '[Clang Tidy] Change to ' + replacements[0].ReplacementText,
+                    diagnostics: [d],
+                    kind: CodeActionKind.QuickFix,
+                    edit: {
+                        changes
+                    }
                 });
 
             } else {
                 actions.push({
-                    title: 'Apply clang-tidy fix',
+                    title: 'Apply clang-tidy fix [NYI]',
                     diagnostics: [d],
                     kind: CodeActionKind.QuickFix
                 });

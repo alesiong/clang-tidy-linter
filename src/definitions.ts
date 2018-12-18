@@ -3,11 +3,23 @@ interface Configuration {
     systemIncludePath: string[];
     lintLanguages: string[];
     extraCompilerArgs: string[];
+    headerFilter: string;
+    args: string[];
 }
 
 interface ClangTidyResult {
     MainSourceFile: string;
     Diagnostics: ClangTidyDiagnostic[];
+}
+
+interface Position {
+    line: number;
+    character: number;
+}
+
+interface Range {
+    start: Position;
+    end: Position;
 }
 
 interface ClangTidyDiagnostic {
@@ -16,6 +28,7 @@ interface ClangTidyDiagnostic {
     FileOffset: number;
     FilePath: string;
     Replacements?: ClangTidyReplacement[];
+    Range?: Range;  // Offset and length translated into line character
 }
 
 interface ClangTidyReplacement {
@@ -23,4 +36,11 @@ interface ClangTidyReplacement {
     Offset: number;
     Length: number;
     ReplacementText: string;
+    Range?: Range;  // Offset and length translated into line character
+}
+
+interface CppToolsConfigs {
+    cppToolsIncludePaths: string[];
+    cStandard: string;
+    cppStandard: string;
 }

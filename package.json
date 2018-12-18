@@ -69,6 +69,19 @@
                         "-Weverything"
                     ],
                     "description": "Extra arguments pass to compiler (-extra-arg=)"
+                },
+                "clangTidy.headerFilter": {
+                    "type": "string",
+                    "default": ".*",
+                    "description": "Value for clang-tidy '-header-filter' command line argument"
+                },
+                "clangTidy.args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Additional arguments to pass to clang-tidy"
                 }
             }
         }
@@ -85,7 +98,7 @@
         "@types/mocha": "^2.2.42",
         "@types/node": "^7.0.43",
         "tslint": "^5.8.0",
-        "typescript": "^2.6.1",
+        "typescript": "^3.2.2",
         "vscode": "^1.1.6"
     },
     "dependencies": {
