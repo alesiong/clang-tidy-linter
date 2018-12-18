@@ -18,7 +18,8 @@ export function activate(context: ExtensionContext) {
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
-            { scheme: 'file', language: 'cpp' }
+            { scheme: 'file', language: 'cpp' },
+            { scheme: 'file', language: 'c'},
         ],
         synchronize: {
             fileEvents: workspace.createFileSystemWatcher('**/*'),

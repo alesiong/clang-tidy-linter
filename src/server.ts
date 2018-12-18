@@ -99,7 +99,7 @@ function getAlternativeDoc(filePath: string, languageId: string): TextDocument |
     // Assume it's a header file and look for a matching source file in the same directory.
     // It would be better to query VSCode for this as it has better overall visibility of matching source to header.
     const basePath = path.parse(Uri.parse(filePath).fsPath);
-    const tryExtensions = [ "c", "cpp", "cxx" ];
+    const tryExtensions = ["c", "cpp", "cxx"];
 
     for (const ext of tryExtensions) {
         const tryPath = path.join(basePath.dir, basePath.name + "." + ext);
@@ -132,8 +132,35 @@ function getDocumentConfig(resource: string): Thenable<Configuration> {
 }
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
+    const workspaceFolders = await connection.workspace.getWorkspaceFolders();
+    const cppToolsIncludePaths: string[] = [];
+    let cStandard: string = '';
+    let cppStandard: string = '';
+
+
+    if (workspaceFolders) {
+        workspaceFolders.forEach(folder => {
+            const config = path.join(Uri.parse(folder.uri).fsPath, '.vscode/c_cpp_properties.json');
+            if (fs.existsSync(config)) {
+                const content = fs.readFileSync(config, { encoding: 'utf8' });
+                const configJson = JSON.parse(content);
+                if (configJson.configurations) {
+                    configJson.configurations.forEach((config: any) => {
+                        if (config.includePath) {
+                            config.includePath.forEach((path: string) => {
+                                cppToolsIncludePaths.push(path.replace('${workspaceFolder}', '.'));
+                            });
+                        }
+                        cStandard = config.cStandard;
+                        cppStandard = config.cppStandard;
+                    });
+                }
+            }
+        });
+    }
+
     const configuration = await getDocumentConfig(textDocument.uri);
-    const workspaceFolders  = await connection.workspace.getWorkspaceFolders();
+    const workspaceFolders = await connection.workspace.getWorkspaceFolders();
     const lintLanguages = new Set(configuration.lintLanguages);
     if (!lintLanguages.has(textDocument.languageId)) {
         return;
@@ -142,8 +169,8 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const folders = workspaceFolders ? workspaceFolders : [];
 
     let allowRecursion: boolean = true;
-    const processResults = (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] }, diagnosticsCount: number) =>
-    {
+    const processResults = (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] },
+        diagnosticsCount: number) => {
         const mainFilePath: string = Uri.parse(textDocument.uri).fsPath;
         let sentDiagnostics: boolean = false;
 
