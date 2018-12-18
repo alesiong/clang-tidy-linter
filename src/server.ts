@@ -8,7 +8,8 @@ import {
 import Uri from 'vscode-uri';
 import { spawn } from 'child_process';
 import { safeLoad } from 'js-yaml';
-
+import * as fs from 'fs';
+import * as path from 'path';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
@@ -97,6 +98,33 @@ function getDocumentConfig(resource: string): Thenable<Configuration> {
 }
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
+    const workspaceFolders = await connection.workspace.getWorkspaceFolders();
+    const cppToolsIncludePaths: string[] = [];
+    let cStandard: string = '';
+    let cppStandard: string = '';
+
+
+    if (workspaceFolders) {
+        workspaceFolders.forEach(folder => {
+            const config = path.join(Uri.parse(folder.uri).fsPath, '.vscode/c_cpp_properties.json');
+            if (fs.existsSync(config)) {
+                const content = fs.readFileSync(config, { encoding: 'utf8' });
+                const configJson = JSON.parse(content);
+                if (configJson.configurations) {
+                    configJson.configurations.forEach((config: any) => {
+                        if (config.includePath) {
+                            config.includePath.forEach((path: string) => {
+                                cppToolsIncludePaths.push(path.replace('${workspaceFolder}', '.'));
+                            });
+                        }
+                        cStandard = config.cStandard;
+                        cppStandard = config.cppStandard;
+                    });
+                }
+            }
+        });
+    }
+
     const configuration = await getDocumentConfig(textDocument.uri);
     const lintLanguages = new Set(configuration.lintLanguages);
     if (!lintLanguages.has(textDocument.languageId)) {
@@ -108,9 +136,8 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const spawnOptions = undefined;
 
     // const spawnOptions = workspace.rootPath ? { cwd: workspace.rootPath } : undefined;
-
-    const args = [Uri.parse(textDocument.uri).fsPath,
-        '--export-fixes=-', '-header-filter=.*'];
+    const filePath = Uri.parse(textDocument.uri).fsPath;
+    const args = [filePath, '--export-fixes=-', '-p=.'];
 
     configuration.systemIncludePath.forEach(path => {
         const arg = '-extra-arg=-isystem' + path;
@@ -118,7 +145,26 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     });
 
     configuration.extraCompilerArgs.forEach(arg => {
-        args.push('-extra-arg=' + arg);
+        args.push('-extra-arg-before=' + arg);
+    });
+
+    if (textDocument.languageId === 'c') {
+        args.push('-extra-arg-before=-xc');
+        if (cStandard) {
+            args.push('-extra-arg-before=-std=' + cStandard);
+        }
+    }
+
+    if (textDocument.languageId === 'cpp') {
+        args.push('-extra-arg-before=-xc++');
+        if (cppStandard) {
+            args.push('-extra-arg-before=-std=' + cppStandard);
+        }
+    }
+
+    cppToolsIncludePaths.forEach(path => {
+        const arg = '-extra-arg=-isystem' + path;
+        args.push(arg);
     });
 
     const childProcess = spawn(configuration.executable, args, spawnOptions);
@@ -129,11 +175,15 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             decoded += data;
         });
         childProcess.stdout.on('end', () => {
+            console.log(decoded);
             const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
             if (match && match[0]) {
                 const yaml = match[0];
                 const parsed = safeLoad(yaml) as ClangTidyResult;
                 parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
+                    if (element.FilePath && element.FilePath !== filePath) {
+                        return;
+                    }
                     const name: string = element.DiagnosticName;
                     const severity = name.endsWith('error') ?
                         DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
@@ -142,7 +192,6 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
                     let range: Range;
                     if (element.Replacements && element.Replacements.length > 0) {
-                        console.log(element.Replacements.length);
                         const start = element.Replacements[0].Offset;
                         const end = start + element.Replacements[0].Length;
                         range = Range.create(textDocument.positionAt(start),

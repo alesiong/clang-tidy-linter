@@ -2,7 +2,7 @@
     "name": "clang-tidy-linter",
     "displayName": "Clang-tidy Linter",
     "description": "A Visual Studio Code extension to lint code by clang-tidy.",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "publisher": "alesiong",
     "engines": {
         "vscode": "^1.24.0"
@@ -90,6 +90,7 @@
     },
     "dependencies": {
         "js-yaml": "^3.12.0",
+        "url-parse": ">=1.4.3",
         "vscode-languageclient": "^4.2.1",
         "vscode-languageserver": "^4.2.1",
         "vscode-uri": "^1.0.5"

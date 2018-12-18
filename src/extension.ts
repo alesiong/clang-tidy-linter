@@ -1,7 +1,6 @@
 'use strict';
 
 import * as path from 'path';
-// import ClangTidyProvider from './features/ClangTidyProvider';
 import { ExtensionContext, workspace } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind }
     from 'vscode-languageclient';
@@ -22,7 +21,8 @@ export function activate(context: ExtensionContext) {
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
-            { scheme: 'file', language: 'cpp' }
+            { scheme: 'file', language: 'cpp' },
+            { scheme: 'file', language: 'c'},
         ],
         synchronize: {
             fileEvents: workspace.createFileSystemWatcher('**/*'),
