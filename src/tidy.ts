@@ -169,9 +169,16 @@ export function generateDiagnostics(
                             let doc: TextDocument;
                             if (replacement.FilePath in docs) {
                                 doc = docs[replacement.FilePath];
+
+                                //replacement.Offset is byte offset, not the character offset
+                                //when your source file contains some symbol which takes more than one byte
+                                //to encode, it will cause error.                                     
+                                const doc_buff = Buffer.from(doc.getText());
+                                const character_offset = doc_buff.toString('utf-8',0,replacement.Offset).length;
+
                                 replacement.Range = {
-                                    start: doc.positionAt(replacement.Offset),
-                                    end: doc.positionAt(replacement.Offset + replacement.Length)
+                                    start: doc.positionAt(character_offset),
+                                    end: doc.positionAt(character_offset + replacement.Length)
                                 };
                             }
                         }
