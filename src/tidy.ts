@@ -172,7 +172,7 @@ export function generateDiagnostics(
 
                                 //replacement.Offset is byte offset, not the character offset
                                 //when your source file contains some symbol which takes more than one byte
-                                //to encode, it will cause error.                                     
+                                //to encode, it will cause error.
                                 const doc_buff = Buffer.from(doc.getText());
                                 const character_offset = doc_buff.toString('utf-8',0,replacement.Offset).length;
 
@@ -205,21 +205,49 @@ export function generateDiagnostics(
     }
 }
 
+function walkDir(dir: string, recursive: boolean, fn: (dir: string) => void) {
+    fs.readdirSync(dir).forEach(file => {
+        const s = path.join(dir, file);
+        if (fs.lstatSync(s).isDirectory()) {
+            fn(s);
+            walkDir(s, recursive, fn);
+        }
+    });
+}
+
 function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsConfigs {
     const cppToolsIncludePaths: string[] = [];
     let cStandard: string = '';
     let cppStandard: string = '';
 
     workspaceFolders.forEach(folder => {
-        const config = path.join(Uri.parse(folder.uri).fsPath, '.vscode/c_cpp_properties.json');
+        const workspacePath = Uri.parse(folder.uri).fsPath;
+        const config = path.join(workspacePath, '.vscode/c_cpp_properties.json');
         if (fs.existsSync(config)) {
             const content = fs.readFileSync(config, { encoding: 'utf8' });
             const configJson = JSON.parse(content);
             if (configJson.configurations) {
                 configJson.configurations.forEach((config: any) => {
                     if (config.includePath) {
-                        config.includePath.forEach((path: string) => {
-                            cppToolsIncludePaths.push(path.replace('${workspaceFolder}', '.'));
+                        config.includePath.forEach((incPath: string) => {
+                            incPath = incPath.replace('${workspaceFolder}', '.');
+                            if (incPath.endsWith('**')) {
+                                let s = incPath.substring(0, incPath.length - 2);
+                                s = path.resolve(workspacePath, s);
+                                cppToolsIncludePaths.push(s);
+                                walkDir(s, true, (dir: string) => {
+                                    cppToolsIncludePaths.push(dir);
+                                });
+                            } else if (incPath.endsWith('*')) {
+                                let s = incPath.substring(0, incPath.length - 1);
+                                s = path.resolve(workspacePath, s);
+                                cppToolsIncludePaths.push(s);
+                                walkDir(s, false, (dir: string) => {
+                                    cppToolsIncludePaths.push(dir);
+                                });
+                            } else {
+                                cppToolsIncludePaths.push(path.resolve(workspacePath, incPath));
+                            }
                         });
                     }
                     cStandard = config.cStandard;
