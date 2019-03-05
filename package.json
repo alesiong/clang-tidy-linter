@@ -89,7 +89,7 @@
                         "type": "string"
                     },
                     "default": [],
-                    "description": "Don't show message if file path of document in documentFilters"
+                    "description": "Don't show message if file path of document in excludes"
                 },
                 "clangTidy.workspaceOnly": {
                     "type": "boolean",
