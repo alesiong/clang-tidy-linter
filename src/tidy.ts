@@ -97,7 +97,14 @@ export function generateDiagnostics(
     if (workspaceFolders) {
         const workspaceFolder = Uri.parse(workspaceFolders[0].uri).fsPath;
         args.forEach(function (arg, index) {
-            args[index] = arg.replace("${workspaceFolder}", workspaceFolder);
+            args[index] = arg.replace('${workspaceFolder}', workspaceFolder);
+        });
+
+        workspaceFolders.forEach(workspaceFolder => {
+            const path = Uri.parse(workspaceFolder.uri).fsPath;
+            args.forEach(function (arg, index) {
+                args[index] = arg.replace('${workspaceFolder:' + workspaceFolder.name + "}", path);
+            });
         });
     }
 
@@ -243,7 +250,12 @@ function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsCo
                 configJson.configurations.forEach((config: any) => {
                     if (config.includePath) {
                         config.includePath.forEach((incPath: string) => {
-                            incPath = incPath.replace('${workspaceFolder}', '.');
+                            incPath = incPath.replace('${workspaceFolder}', workspacePath);
+                            workspaceFolders.forEach(wf => {
+                                incPath = incPath.replace('${workspaceFolder:' + wf.name + '}',
+                                    Uri.parse(wf.uri).fsPath);
+                            });
+
                             if (incPath.endsWith('**')) {
                                 let s = incPath.substring(0, incPath.length - 2);
                                 s = path.resolve(workspacePath, s);
