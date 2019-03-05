@@ -5,7 +5,8 @@ interface Configuration {
     extraCompilerArgs: string[];
     headerFilter: string;
     args: string[];
-    documentFilters: string[];
+    excludes: string[];
+    workspaceOnly: boolean;
 }
 
 interface ClangTidyResult {

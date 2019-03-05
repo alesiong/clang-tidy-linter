@@ -27,7 +27,8 @@ const defaultConfig: Configuration = {
     extraCompilerArgs: ["-Weverything"],
     headerFilter: ".*",
     args: [],
-    documentFilters: []
+    excludes: [],
+    workspaceOnly: false
 };
 
 let globalConfig = defaultConfig;

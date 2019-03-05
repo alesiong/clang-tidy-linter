@@ -83,13 +83,18 @@
                     "default": [],
                     "description": "Additional arguments to pass to clang-tidy"
                 },
-                "clangTidy.documentFilters": {
+                "clangTidy.excludes": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     },
                     "default": [],
-                    "description": "Filter document if content any item of documentFilters"
+                    "description": "Don't show message if file path of document in documentFilters"
+                },
+                "clangTidy.workspaceOnly": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Filter message to workspaces folder"
                 }
             }
         }
