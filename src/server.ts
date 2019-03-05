@@ -99,7 +99,7 @@ function getAlternativeDoc(filePath: string, languageId: string): TextDocument |
     // Assume it's a header file and look for a matching source file in the same directory.
     // It would be better to query VSCode for this as it has better overall visibility of matching source to header.
     const basePath = path.parse(Uri.parse(filePath).fsPath);
-    const tryExtensions = ["c", "cpp", "cxx"];
+    const tryExtensions = ["c", "cpp", "cxx", "cc"];
 
     for (const ext of tryExtensions) {
         const tryPath = path.join(basePath.dir, basePath.name + "." + ext);
