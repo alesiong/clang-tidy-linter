@@ -26,7 +26,8 @@ const defaultConfig: Configuration = {
     lintLanguages: ["c", "cpp"],
     extraCompilerArgs: ["-Weverything"],
     headerFilter: ".*",
-    args: []
+    args: [],
+    documentFilters: []
 };
 
 let globalConfig = defaultConfig;

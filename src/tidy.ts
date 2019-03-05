@@ -104,6 +104,9 @@ export function generateDiagnostics(
     // console.warn("clang-tidy with args: " + args);
     const childProcess = spawn(configuration.executable, args);
 
+    const docFilters = configuration.documentFilters;
+    const docFiltersCount = docFilters.length;
+
     childProcess.on('error', console.error);
     if (childProcess.pid) {
         childProcess.stdout.on('data', (data) => {
@@ -115,6 +118,15 @@ export function generateDiagnostics(
                 const yaml = match[0];
                 const parsed = safeLoad(yaml) as ClangTidyResult;
                 parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
+                    if (docFiltersCount > 0) {
+                        const filePath = element.FilePath;
+                        for (let i = 0; i < docFiltersCount; i++) {
+                            if (filePath.includes(docFilters[i])) {
+                                return;
+                            }
+                        }
+                    }
+
                     const name: string = element.DiagnosticName;
                     const severity = name.endsWith('error') ?
                         DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
