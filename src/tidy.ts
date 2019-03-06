@@ -54,6 +54,7 @@ export function generateDiagnostics(
     // file level character offsets into line/character offsets used by VSCode.
     // Keyed on absolute file name.
     const docs: { [id: string]: TextDocument } = {};
+    const textDocumentPath = Uri.parse(textDocument.uri).fsPath;
     const defWorkspaceFolder = workspaceFolders && workspaceFolders.length > 0 ?
         Uri.parse(workspaceFolders[0].uri).fsPath : '.';
 
@@ -63,10 +64,10 @@ export function generateDiagnostics(
     }
 
     // Immediately add entries for the textDocument.
-    diagnostics[Uri.parse(textDocument.uri).fsPath] = [];
-    docs[Uri.parse(textDocument.uri).fsPath] = textDocument;
+    diagnostics[textDocumentPath] = [];
+    docs[textDocumentPath] = textDocument;
 
-    const args = [Uri.parse(textDocument.uri).fsPath, '--export-fixes=-'];
+    const args = [textDocumentPath, '--export-fixes=-'];
 
     if (configuration.headerFilter) {
         args.push('-header-filter=' + configuration.headerFilter);
@@ -115,6 +116,9 @@ export function generateDiagnostics(
 
     childProcess.on('error', console.error);
     if (childProcess.pid) {
+        childProcess.stderr.on('data', data => {
+            console.error(data.toString());
+        });
         childProcess.stdout.on('data', (data) => {
             decoded += data;
         });
@@ -142,7 +146,7 @@ export function generateDiagnostics(
                     // Helper function to ensure absolute paths and required registrations are made.
                     function fixPath(filePath: string): string {
                         if (filePath && !path.isAbsolute(filePath)) {
-                            filePath = path.resolve(path.dirname(Uri.parse(textDocument.uri).fsPath),
+                            filePath = path.resolve(path.dirname(textDocumentPath),
                                 filePath);
                         }
 
@@ -256,14 +260,14 @@ function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsCo
                     if (config.includePath) {
                         config.includePath.forEach((incPath: string) => {
                             incPath = resolvePath(incPath, workspacePath, workspaceFolders);
-                            if (incPath.endsWith('**')) {
-                                const s = incPath.substring(0, incPath.length - 2);
+                            if (incPath.endsWith('/**')) {
+                                const s = incPath.substring(0, incPath.length - 3);
                                 pushIncPath(s);
                                 walkDir(s, true, (dir: string) => {
                                     pushIncPath(dir);
                                 });
-                            } else if (incPath.endsWith('*')) {
-                                const s = incPath.substring(0, incPath.length - 1);
+                            } else if (incPath.endsWith('/*')) {
+                                const s = incPath.substring(0, incPath.length - 2);
                                 pushIncPath(s);
                                 walkDir(s, false, (dir: string) => {
                                     pushIncPath(dir);
