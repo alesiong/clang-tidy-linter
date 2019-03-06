@@ -8,6 +8,19 @@ import Uri from 'vscode-uri';
 import * as path from 'path';
 import * as fs from 'fs';
 
+// resolve {$workspaceFolder} and {$workspaceFolder:Name} in pathIn
+// resolve relative path base on workspaceFolder
+function resolvePath(pathIn: string, workspaceFolder: string, workspaceFolders: WorkspaceFolder[]): string {
+    let s = pathIn.replace('${workspaceFolder}', workspaceFolder);
+    if (workspaceFolders) {
+        workspaceFolders.forEach(wf => {
+            s = s.replace('${workspaceFolder:' + wf.name + '}',
+                Uri.parse(wf.uri).fsPath);
+        });
+    }
+    return path.resolve(workspaceFolder, s);
+}
+
 // Invoke clang-tidy and transform it issues into a file/Diagnostics map.
 //
 // This invoke clang-tidy with the configured arguments and parses the results into vscode-languageserver.Diagnostic
@@ -41,6 +54,8 @@ export function generateDiagnostics(
     // file level character offsets into line/character offsets used by VSCode.
     // Keyed on absolute file name.
     const docs: { [id: string]: TextDocument } = {};
+    const defWorkspaceFolder = workspaceFolders && workspaceFolders.length > 0 ?
+        Uri.parse(workspaceFolders[0].uri).fsPath : '';
 
     let cppToolsConfigs: CppToolsConfigs | null = null;
     if (workspaceFolders) {
@@ -58,7 +73,7 @@ export function generateDiagnostics(
     }
 
     configuration.systemIncludePath.forEach(path => {
-        const arg = '-extra-arg=-isystem' + path;
+        const arg = '-extra-arg=-isystem' + resolvePath(path, defWorkspaceFolder, workspaceFolders);
         args.push(arg);
     });
 
@@ -92,27 +107,11 @@ export function generateDiagnostics(
         });
     }
 
-    // Replace ${workspaceFolder} in arguments. Seem to be a number of issues open regarding
-    // support for this in the VSCode API, but I can't find a solution.
-    if (workspaceFolders) {
-        const workspaceFolder = Uri.parse(workspaceFolders[0].uri).fsPath;
-        args.forEach(function (arg, index) {
-            args[index] = arg.replace('${workspaceFolder}', workspaceFolder);
-        });
-
-        workspaceFolders.forEach(workspaceFolder => {
-            const path = Uri.parse(workspaceFolder.uri).fsPath;
-            args.forEach(function (arg, index) {
-                args[index] = arg.replace('${workspaceFolder:' + workspaceFolder.name + "}", path);
-            });
-        });
-    }
-
     // console.warn("clang-tidy with args: " + args);
     const childProcess = spawn(configuration.executable, args);
 
     const workspaceOnly = configuration.workspaceOnly;
-    const excludes = configuration.excludes;
+    const excludes = configuration.excludes.map(exclude => resolvePath(exclude, defWorkspaceFolder, workspaceFolders));
 
     childProcess.on('error', console.error);
     if (childProcess.pid) {
@@ -125,7 +124,7 @@ export function generateDiagnostics(
                 const yaml = match[0];
                 const parsed = safeLoad(yaml) as ClangTidyResult;
                 parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
-                    const filePath = element.FilePath;
+                    const filePath = path.resolve(element.FilePath);
                     if (excludes && excludes.some(s => filePath.includes(s))) {
                         return;
                     }
@@ -240,6 +239,12 @@ function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsCo
     let cStandard: string = '';
     let cppStandard: string = '';
 
+    function pushIncPath(s: string) {
+        if (cppToolsIncludePaths.indexOf(s) < 0) {
+            cppToolsIncludePaths.push(s);
+        }
+    }
+
     workspaceFolders.forEach(folder => {
         const workspacePath = Uri.parse(folder.uri).fsPath;
         const config = path.join(workspacePath, '.vscode/c_cpp_properties.json');
@@ -250,28 +255,21 @@ function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsCo
                 configJson.configurations.forEach((config: any) => {
                     if (config.includePath) {
                         config.includePath.forEach((incPath: string) => {
-                            incPath = incPath.replace('${workspaceFolder}', workspacePath);
-                            workspaceFolders.forEach(wf => {
-                                incPath = incPath.replace('${workspaceFolder:' + wf.name + '}',
-                                    Uri.parse(wf.uri).fsPath);
-                            });
-
+                            incPath = resolvePath(incPath, workspacePath, workspaceFolders);
                             if (incPath.endsWith('**')) {
-                                let s = incPath.substring(0, incPath.length - 2);
-                                s = path.resolve(workspacePath, s);
-                                cppToolsIncludePaths.push(s);
+                                const s = incPath.substring(0, incPath.length - 2);
+                                pushIncPath(s);
                                 walkDir(s, true, (dir: string) => {
-                                    cppToolsIncludePaths.push(dir);
+                                    pushIncPath(dir);
                                 });
                             } else if (incPath.endsWith('*')) {
-                                let s = incPath.substring(0, incPath.length - 1);
-                                s = path.resolve(workspacePath, s);
-                                cppToolsIncludePaths.push(s);
+                                const s = incPath.substring(0, incPath.length - 1);
+                                pushIncPath(s);
                                 walkDir(s, false, (dir: string) => {
-                                    cppToolsIncludePaths.push(dir);
+                                    pushIncPath(dir);
                                 });
                             } else {
-                                cppToolsIncludePaths.push(path.resolve(workspacePath, incPath));
+                                pushIncPath(incPath);
                             }
                         });
                     }
