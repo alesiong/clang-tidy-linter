@@ -173,7 +173,7 @@ export function generateDiagnostics(
                     const clangTidySourceName: string = 'Clang Tidy';
 
                     // Ensure an absolute path for the main clang-tidy element.
-                    element.FilePath = fixPath(element.FilePath);
+                    element.FilePath = fixPath(filePath);
 
                     // Iterate the replacements to:
                     // - Ensure absolute paths.
