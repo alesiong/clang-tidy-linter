@@ -55,7 +55,7 @@ export function generateDiagnostics(
     // Keyed on absolute file name.
     const docs: { [id: string]: TextDocument } = {};
     const defWorkspaceFolder = workspaceFolders && workspaceFolders.length > 0 ?
-        Uri.parse(workspaceFolders[0].uri).fsPath : '';
+        Uri.parse(workspaceFolders[0].uri).fsPath : '.';
 
     let cppToolsConfigs: CppToolsConfigs | null = null;
     if (workspaceFolders) {
