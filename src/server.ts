@@ -230,13 +230,12 @@ async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[
                         changes
                     }
                 });
-
             } else {
-                actions.push({
-                    title: 'Apply clang-tidy fix [NYI]',
-                    diagnostics: [d],
-                    kind: CodeActionKind.QuickFix
-                });
+                // actions.push({
+                //     title: 'Apply clang-tidy fix [NYI]',
+                //     diagnostics: [d],
+                //     kind: CodeActionKind.QuickFix
+                // });
             }
         });
     return actions;
