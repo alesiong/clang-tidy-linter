@@ -108,121 +108,177 @@ export function generateDiagnostics(
         });
     }
 
+    const workspaceOnly = configuration.workspaceOnly;
+    const excludes = configuration.excludes.map(exclude => resolvePath(exclude, defWorkspaceFolder, workspaceFolders));
+
     // console.warn("clang-tidy with args: " + args);
     const childProcess = spawn(configuration.executable, args);
 
-    const workspaceOnly = configuration.workspaceOnly;
-    const excludes = configuration.excludes.map(exclude => resolvePath(exclude, defWorkspaceFolder, workspaceFolders));
+    function resolveFilePath(filePath: string): string {
+        if (filePath === '') {
+            return '';
+        }
+
+        filePath = path.resolve(filePath);
+        if (excludes && excludes.some(s => filePath.includes(s))) {
+            return '';
+        }
+
+        if (workspaceOnly && workspaceFolders &&
+            !workspaceFolders.some(s => filePath.startsWith(Uri.parse(s.uri).fsPath))) {
+            return '';
+        }
+
+        return filePath;
+    }
+
+    function addDiagnostic(filePath: string, range: Range, message: string,
+        severity: DiagnosticSeverity, code?: number | string) {
+        const diagnostic: Diagnostic = Diagnostic.create(range, message, severity,
+            code, 'Clang Tidy');
+
+        if (!(filePath in diagnostics)) {
+            diagnostics[filePath] = [];
+        }
+        diagnostics[filePath].push(diagnostic);
+        ++diagnosticsCount;
+    }
+
+    function parseCompilerError() {
+        const regex = /(.*):(\d+):(\d+):\s(\w+):(.*)\n(.*\n.*)/gm;
+        let matchs: RegExpExecArray | null;
+        while ((matchs = regex.exec(decoded)) !== null) {
+            if (matchs.index === regex.lastIndex) {
+                regex.lastIndex++;
+            }
+            if (matchs.length >= 7) {
+                const filePath = resolveFilePath(matchs[1]);
+                if (filePath === '') {
+                    continue;
+                }
+
+                const line = Number(matchs[2]) - 1;
+                const col = Number(matchs[3]) - 1;
+                const severity = matchs[4].endsWith('error') ?
+                    DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
+                if (severity !== DiagnosticSeverity.Error) {
+                    continue;
+                }
+                const message = matchs[5];
+                const reason = matchs[6];
+                const range = {
+                    start: {
+                        line: line,
+                        character: col
+                    },
+                    end: {
+                        line: line,
+                        character: col
+                    }
+                };
+
+                addDiagnostic(filePath, range, message + '\n' + reason, severity);
+            }
+        }
+    }
+
+    function parseTidyWarn() {
+        const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
+        if (match && match[0]) {
+            const yaml = match[0];
+            const parsed = safeLoad(yaml) as ClangTidyResult;
+            parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
+                element.FilePath = resolveFilePath(element.FilePath);
+
+                if (element.FilePath === '') {
+                    return;
+                }
+
+                const name: string = element.DiagnosticName;
+                if (name.endsWith('error')) {
+                    return;
+                }
+                const severity = DiagnosticSeverity.Warning;
+                const message: string = `${element.Message} (${name})`;
+
+                let doc: TextDocument | null = null;
+                if (element.FilePath in docs) {
+                    doc = docs[element.FilePath];
+                } else {
+                    // Unresolved. We'll create a new TextDocument reference loading the content.
+                    // This is potentially inefficient, and it would be nice to see if we can leverage
+                    // VSCode to manage this.
+                    if (fs.existsSync(element.FilePath)) {
+                        try {
+                            // Resolve replacement.FileOffset and replacement.Length into a range.
+                            doc = TextDocument.create("file://" + element.FilePath,
+                                textDocument.languageId, 0,
+                                fs.readFileSync(element.FilePath).toString());
+                            docs[element.FilePath] = doc;
+                        } catch (error) {
+                            console.error(element.FilePath, ':', error);
+                        }
+                    }
+                }
+
+
+                // Iterate the replacements to:
+                // - Ensure absolute paths.
+                // - Resolve clang's character offset and length to a line and character range.
+                if (element.Replacements) {
+                    for (const replacement of element.Replacements) {
+                        // Ensure replacement FilePath entries use absolute paths.
+                        replacement.FilePath = element.FilePath;
+
+                        // Create a diagnostic for the replacement. The context of each replacement may be a
+                        // different file from the element's FilePath.
+                        if (doc) {
+                            //replacement.Offset is byte offset, not the character offset
+                            //when your source file contains some symbol which takes more than one byte
+                            //to encode, it will cause error.
+                            const doc_buff = Buffer.from(doc.getText());
+                            const character_offset = doc_buff.toString('utf-8', 0, replacement.Offset).length;
+
+                            replacement.Range = {
+                                start: doc.positionAt(character_offset),
+                                end: doc.positionAt(character_offset + replacement.Length)
+                            };
+                        }
+                    }
+                }
+
+                // Create a VSCode Diagnostic. Use the original textDocument if we fail to resolve the document
+                // path. This ensures the user gets feedback.
+                if (doc) {
+                    element.Range = {
+                        start: doc.positionAt(element.FileOffset),
+                        end: doc.positionAt(element.FileOffset)
+                    };
+                } else {
+                    element.Range = {
+                        start: textDocument.positionAt(element.FileOffset),
+                        end: textDocument.positionAt(element.FileOffset)
+                    };
+                }
+
+                addDiagnostic(element.FilePath, element.Range, message, severity,
+                    element.Replacements && JSON.stringify(element.Replacements));
+            });
+        }
+    }
+
 
     childProcess.on('error', console.error);
     if (childProcess.pid) {
         childProcess.stderr.on('data', data => {
-            console.error(data.toString());
+            // console.error(data.toString());
         });
         childProcess.stdout.on('data', (data) => {
             decoded += data;
         });
         childProcess.stdout.on('end', () => {
-            const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
-            if (match && match[0]) {
-                const yaml = match[0];
-                const parsed = safeLoad(yaml) as ClangTidyResult;
-                parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
-                    const filePath = path.resolve(element.FilePath);
-                    if (excludes && excludes.some(s => filePath.includes(s))) {
-                        return;
-                    }
-
-                    if (workspaceOnly && workspaceFolders &&
-                        !workspaceFolders.some(s => filePath.startsWith(Uri.parse(s.uri).fsPath))) {
-                        return;
-                    }
-
-                    const name: string = element.DiagnosticName;
-                    const severity = name.endsWith('error') ?
-                        DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
-                    const message: string = `${element.Message} (${name})`;
-
-                    // Helper function to ensure absolute paths and required registrations are made.
-                    function fixPath(filePath: string): string {
-                        if (filePath && !path.isAbsolute(filePath)) {
-                            filePath = path.resolve(path.dirname(textDocumentPath),
-                                filePath);
-                        }
-
-                        if (!(filePath in diagnostics)) {
-                            diagnostics[filePath] = [];
-                        }
-
-                        // Resolve replacement.FileOffset and replacement.Length into a range.
-                        let doc: TextDocument | undefined = undefined;
-
-                        // Resolve the document.
-                        if (!(filePath in docs)) {
-                            // Unresolved. We'll create a new TextDocument reference loading the content.
-                            // This is potentially inefficient, and it would be nice to see if we can leverage
-                            // VSCode to manage this.
-                            if (fs.existsSync(filePath)) {
-                                doc = TextDocument.create("file://" + filePath,
-                                    textDocument.languageId, 0,
-                                    fs.readFileSync(filePath).toString());
-                                docs[filePath] = doc;
-                            }
-                        }
-
-                        return filePath;
-                    }
-
-                    // Create a dictionary of diagnostics ensuring we use absolute paths to handle errors from headers.
-                    const clangTidySourceName: string = 'Clang Tidy';
-
-                    // Ensure an absolute path for the main clang-tidy element.
-                    element.FilePath = fixPath(filePath);
-
-                    // Iterate the replacements to:
-                    // - Ensure absolute paths.
-                    // - Resolve clang's character offset and length to a line and character range.
-                    if (element.Replacements) {
-                        for (const replacement of element.Replacements) {
-                            // Ensure replacement FilePath entries use absolute paths.
-                            replacement.FilePath = fixPath(element.FilePath);
-
-                            // Create a diagnostic for the replacement. The context of each replacement may be a
-                            // different file from the element's FilePath.
-                            let doc: TextDocument;
-                            if (replacement.FilePath in docs) {
-                                doc = docs[replacement.FilePath];
-
-                                //replacement.Offset is byte offset, not the character offset
-                                //when your source file contains some symbol which takes more than one byte
-                                //to encode, it will cause error.
-                                const doc_buff = Buffer.from(doc.getText());
-                                const character_offset = doc_buff.toString('utf-8',0,replacement.Offset).length;
-
-                                replacement.Range = {
-                                    start: doc.positionAt(character_offset),
-                                    end: doc.positionAt(character_offset + replacement.Length)
-                                };
-                            }
-                        }
-                    }
-                    // Create a VSCode Diagnostic. Use the original textDocument if we fail to resolve the document
-                    // path. This ensures the user gets feedback.
-                    const doc = element.FilePath in docs ? docs[element.FilePath] : textDocument;
-                    element.Range = {
-                        start: doc.positionAt(element.FileOffset),
-                        end: doc.positionAt(element.FileOffset)
-                    };
-
-                    const diagnostic: Diagnostic = Diagnostic.create(element.Range, message, severity,
-                        element.Replacements && JSON.stringify(element.Replacements), clangTidySourceName);
-
-                    diagnostics[element.FilePath].push(diagnostic);
-                    ++diagnosticsCount;
-
-                });
-            }
-
+            parseCompilerError();
+            parseTidyWarn();
             onParsed(textDocument, diagnostics, diagnosticsCount);
         });
     }
