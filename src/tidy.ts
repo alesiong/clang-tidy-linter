@@ -116,7 +116,7 @@ export function generateDiagnostics(
 
     function resolveFilePath(filePath: string): string {
         if (filePath === '') {
-            return '';
+            return textDocumentPath;
         }
 
         filePath = path.resolve(filePath);
@@ -189,7 +189,6 @@ export function generateDiagnostics(
             const parsed = safeLoad(yaml) as ClangTidyResult;
             parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
                 element.FilePath = resolveFilePath(element.FilePath);
-
                 if (element.FilePath === '') {
                     return;
                 }
