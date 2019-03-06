@@ -89,12 +89,12 @@
                         "type": "string"
                     },
                     "default": [],
-                    "description": "Don't show message if file path of document in excludes"
+                    "description": "Don't show message if file path of document in the excludes"
                 },
                 "clangTidy.workspaceOnly": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Filter message to workspaces folder"
+                    "description": "Limit messages to document on the workspaces folders"
                 }
             }
         }

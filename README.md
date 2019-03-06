@@ -28,6 +28,10 @@ You may need to modify some default settings to get this extension to work for n
 
 `clangTidy.args`: Additional arguments to pass to `clang-tidy`
 
+`clangTidy.excludes`: Don't show message if file path of document in the excludes
+
+`clangTidy.workspaceOnly`: Limit messages to document on the workspaces folders
+
 If you want to configure the checks of clang tidy, create a `.clang-tidy` file in your working directory (please refer to the `clang-tidy`'s document for detail).
 
 ## Known Issues
@@ -50,11 +54,9 @@ I'm a beginner to vscode extension development, so if you have any suggestions, 
 
 3. Support for on-the-fly linting (if possible)
 
-4. Support for custom include paths through settings and by reading `.vscode/c_cpp_properties.json`
+4. Support for use custom `defines` in `.vscode/c_cpp_properties.json`
 
 5. Ship clang-tidy binaries
-
-6. Support for use custom `defines` in `.vscode/c_cpp_properties.json`
 
 ## Know Issues
 
