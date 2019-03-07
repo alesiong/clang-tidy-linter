@@ -1,6 +1,6 @@
 
 import {
-    Diagnostic, DiagnosticSeverity, TextDocument, WorkspaceFolder, Connection
+    Diagnostic, DiagnosticSeverity, TextDocument, WorkspaceFolder
 } from 'vscode-languageserver';
 import { spawn } from 'child_process';
 import { safeLoad } from 'js-yaml';
@@ -38,7 +38,6 @@ function resolvePath(pathIn: string, workspaceFolder: string, workspaceFolders: 
 // onParsed: Callback to invoke once the diagnostics are generated. The argument holds a dictionary of results.
 //      These are keyed on absolute file path (not URI) and the array of associated Diagnostics for that file.
 export function generateDiagnostics(
-    connection: Connection,
     textDocument: TextDocument, configuration: Configuration,
     workspaceFolders: WorkspaceFolder[],
     onParsed: (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] },
@@ -183,6 +182,7 @@ export function generateDiagnostics(
     }
 
     function parseTidyWarn() {
+        const replacements: ClangTidyReplacementFix[] = [];
         const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
         if (match && match[0]) {
             const yaml = match[0];
@@ -226,8 +226,11 @@ export function generateDiagnostics(
                 // - Resolve clang's character offset and length to a line and character range.
                 if (element.Replacements) {
                     for (const replacement of element.Replacements) {
+                        const replacementFix: ClangTidyReplacementFix = {
+                            t: replacement.ReplacementText
+                        };
                         // Ensure replacement FilePath entries use absolute paths.
-                        replacement.FilePath = element.FilePath;
+                        //replacement.FilePath = element.FilePath;
 
                         // Create a diagnostic for the replacement. The context of each replacement may be a
                         // different file from the element's FilePath.
@@ -238,11 +241,12 @@ export function generateDiagnostics(
                             const doc_buff = Buffer.from(doc.getText());
                             const character_offset = doc_buff.toString('utf-8', 0, replacement.Offset).length;
 
-                            replacement.Range = {
+                            replacementFix.r = {
                                 start: doc.positionAt(character_offset),
                                 end: doc.positionAt(character_offset + replacement.Length)
                             };
                         }
+                        replacements.push(replacementFix);
                     }
                 }
 
@@ -261,7 +265,7 @@ export function generateDiagnostics(
                 }
 
                 addDiagnostic(element.FilePath, element.Range, message, severity,
-                    element.Replacements && JSON.stringify(element.Replacements));
+                    replacements.length > 0? JSON.stringify(replacements): undefined);
             });
         }
     }
