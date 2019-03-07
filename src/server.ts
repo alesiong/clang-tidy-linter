@@ -3,12 +3,14 @@
 import {
     createConnection, TextDocuments, TextDocument, Diagnostic,
     ProposedFeatures, InitializeParams, DidChangeConfigurationNotification,
-    CodeActionParams, CodeAction, CodeActionKind, TextEdit, PublishDiagnosticsParams,
+    CodeActionParams, CodeAction, CodeActionKind, TextEdit, PublishDiagnosticsParams, WorkspaceFolder,
 } from 'vscode-languageserver';
 import Uri from 'vscode-uri';
 import { generateDiagnostics } from './tidy';
 import * as path from 'path';
 import * as fs from 'fs';
+import { isValide } from "./utils";
+import { initConfig } from "./config";
 
 // update by https://github.com/Microsoft/vscode-eslint/blob/master/server/src/eslintServer.ts
 // see:RuleCodeActions,
@@ -31,7 +33,12 @@ const defaultConfig: Configuration = {
     headerFilter: ".*",
     args: [],
     excludes: [],
-    workspaceOnly: false
+    workspaceOnly: false,
+    defaultWorkspaceFolder: '.',
+
+    genArgs: [],
+    cStandard: '',
+    cppStandard: ''
 };
 
 let globalConfig = defaultConfig;
@@ -120,7 +127,7 @@ function getAlternativeDoc(filePath: string, languageId: string): TextDocument |
 }
 
 // Get config by document url (resource)
-function getDocumentConfig(resource: string): Thenable<Configuration> {
+function getDocumentConfig(resource: string, workspaceFolders: WorkspaceFolder[]): Thenable<Configuration> {
     if (!hasConfigurationCapability) {
         return Promise.resolve(globalConfig);
     }
@@ -130,21 +137,25 @@ function getDocumentConfig(resource: string): Thenable<Configuration> {
             scopeUri: resource,
             section: 'clangTidy'
         });
-        documentConfig.set(resource, result);
+        documentConfig.set(resource, result.then(v => {
+            return initConfig(v, workspaceFolders);
+        }));
     }
     return result;
 }
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const workspaceFolders = await connection.workspace.getWorkspaceFolders();
-    const configuration = await getDocumentConfig(textDocument.uri);
+    const folders = workspaceFolders ? workspaceFolders : [];
+    const configuration = await getDocumentConfig(textDocument.uri, folders);
+
     const lintLanguages = new Set(configuration.lintLanguages);
 
-    if (!lintLanguages.has(textDocument.languageId)) {
+    if (!lintLanguages.has(textDocument.languageId) ||
+        !isValide(Uri.parse(textDocument.uri).fsPath, configuration, folders)) {
         return;
     }
 
-    const folders = workspaceFolders ? workspaceFolders : [];
 
     let allowRecursion: boolean = true;
     const processResults = (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] },

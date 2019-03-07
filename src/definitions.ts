@@ -7,6 +7,11 @@ interface Configuration {
     args: string[];
     excludes: string[];
     workspaceOnly: boolean;
+
+    defaultWorkspaceFolder: string;
+    genArgs: string[];
+    cStandard: string;
+    cppStandard: string;
 }
 
 interface ClangTidyResult {

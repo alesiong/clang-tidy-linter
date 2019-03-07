@@ -58,6 +58,8 @@ I'm a beginner to vscode extension development, so if you have any suggestions, 
 
 5. Ship clang-tidy binaries
 
+6. Reconfiguration when `.vscode/c_cpp_properties.json`
+
 ## Know Issues
 
 - When using `-p compile_commands.json`, saving a header or opening a header file for the first time can clear existing quick fixes for that file.

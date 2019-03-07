@@ -7,19 +7,8 @@ import { safeLoad } from 'js-yaml';
 import Uri from 'vscode-uri';
 import * as path from 'path';
 import * as fs from 'fs';
+import { isValide } from "./utils";
 
-// resolve {$workspaceFolder} and {$workspaceFolder:Name} in pathIn
-// resolve relative path base on workspaceFolder
-function resolvePath(pathIn: string, workspaceFolder: string, workspaceFolders: WorkspaceFolder[]): string {
-    let s = pathIn.replace('${workspaceFolder}', workspaceFolder);
-    if (workspaceFolders) {
-        workspaceFolders.forEach(wf => {
-            s = s.replace('${workspaceFolder:' + wf.name + '}',
-                Uri.parse(wf.uri).fsPath);
-        });
-    }
-    return path.resolve(workspaceFolder, s);
-}
 
 // Invoke clang-tidy and transform it issues into a file/Diagnostics map.
 //
@@ -43,6 +32,7 @@ export function generateDiagnostics(
     onParsed: (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] },
         diagnosticsCount: number) => void) {
 
+
     let decoded = '';
     // Dictionary of collated diagnostics keyed on absolute file name. This supports source files generating
     // diagnostics for header files.
@@ -54,82 +44,36 @@ export function generateDiagnostics(
     // Keyed on absolute file name.
     const docs: { [id: string]: TextDocument } = {};
     const textDocumentPath = Uri.parse(textDocument.uri).fsPath;
-    const defWorkspaceFolder = workspaceFolders && workspaceFolders.length > 0 ?
-        Uri.parse(workspaceFolders[0].uri).fsPath : '.';
-
-    let cppToolsConfigs: CppToolsConfigs | null = null;
-    if (workspaceFolders) {
-        cppToolsConfigs = readConfigFromCppTools(workspaceFolders);
-    }
-
-    // Immediately add entries for the textDocument.
-    diagnostics[textDocumentPath] = [];
-    docs[textDocumentPath] = textDocument;
-
-    const args = [textDocumentPath, '--export-fixes=-'];
-
-    if (configuration.headerFilter) {
-        args.push('-header-filter=' + configuration.headerFilter);
-    }
-
-    configuration.systemIncludePath.forEach(path => {
-        const arg = '-extra-arg=-isystem' + resolvePath(path, defWorkspaceFolder, workspaceFolders);
-        args.push(arg);
-    });
-
-    configuration.extraCompilerArgs.forEach(arg => {
-        args.push('-extra-arg-before=' + arg);
-    });
-
-    configuration.args.forEach(arg => {
-        args.push(arg);
-    });
-
-    if (cppToolsConfigs) {
-        const { cppToolsIncludePaths, cStandard, cppStandard } = cppToolsConfigs;
-        if (textDocument.languageId === 'c') {
-            args.push('-extra-arg-before=-xc');
-            if (cStandard) {
-                args.push('-extra-arg-before=-std=' + cStandard);
-            }
-        }
-
-        if (textDocument.languageId === 'cpp') {
-            args.push('-extra-arg-before=-xc++');
-            if (cppStandard) {
-                args.push('-extra-arg-before=-std=' + cppStandard);
-            }
-        }
-
-        cppToolsIncludePaths.forEach(path => {
-            const arg = '-extra-arg=-I' + path;
-            args.push(arg);
-        });
-    }
-
-    const workspaceOnly = configuration.workspaceOnly;
-    const excludes = configuration.excludes.map(exclude => resolvePath(exclude, defWorkspaceFolder, workspaceFolders));
-
-    // console.warn("clang-tidy with args: " + args);
-    const childProcess = spawn(configuration.executable, args);
 
     function resolveFilePath(filePath: string): string {
         if (filePath === '') {
             return textDocumentPath;
         }
-
         filePath = path.resolve(filePath);
-        if (excludes && excludes.some(s => filePath.includes(s))) {
-            return '';
-        }
 
-        if (workspaceOnly && workspaceFolders &&
-            !workspaceFolders.some(s => filePath.startsWith(Uri.parse(s.uri).fsPath))) {
-            return '';
-        }
-
-        return filePath;
+        return isValide(filePath, configuration, workspaceFolders)? filePath: "";
     }
+
+    // Immediately add entries for the textDocument.
+    diagnostics[textDocumentPath] = [];
+    docs[textDocumentPath] = textDocument;
+    const args = configuration.args;
+
+    if (textDocument.languageId === 'c') {
+        args.push('-extra-arg-before=-xc');
+        if (configuration.cStandard) {
+            args.push('-extra-arg-before=-std=' + configuration.cStandard);
+        }
+    }
+
+    if (textDocument.languageId === 'cpp') {
+        args.push('-extra-arg-before=-xc++');
+        if (configuration.cppStandard) {
+            args.push('-extra-arg-before=-std=' + configuration.cppStandard);
+        }
+    }
+    args.push(textDocumentPath);
+    const childProcess = spawn(configuration.executable, args);
 
     function addDiagnostic(filePath: string, range: Range, message: string,
         severity: DiagnosticSeverity, code?: number | string) {
@@ -285,65 +229,4 @@ export function generateDiagnostics(
             onParsed(textDocument, diagnostics, diagnosticsCount);
         });
     }
-}
-
-function walkDir(dir: string, recursive: boolean, fn: (dir: string) => void) {
-    fs.readdirSync(dir).forEach(file => {
-        const s = path.join(dir, file);
-        if (fs.lstatSync(s).isDirectory()) {
-            fn(s);
-            walkDir(s, recursive, fn);
-        }
-    });
-}
-
-function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsConfigs {
-    const cppToolsIncludePaths: string[] = [];
-    let cStandard: string = '';
-    let cppStandard: string = '';
-
-    function pushIncPath(s: string) {
-        if (cppToolsIncludePaths.indexOf(s) < 0) {
-            cppToolsIncludePaths.push(s);
-        }
-    }
-
-    workspaceFolders.forEach(folder => {
-        const workspacePath = Uri.parse(folder.uri).fsPath;
-        const config = path.join(workspacePath, '.vscode/c_cpp_properties.json');
-        if (fs.existsSync(config)) {
-            const content = fs.readFileSync(config, { encoding: 'utf8' });
-            const configJson = JSON.parse(content);
-            if (configJson.configurations) {
-                configJson.configurations.forEach((config: any) => {
-                    if (config.includePath) {
-                        config.includePath.forEach((incPath: string) => {
-                            incPath = resolvePath(incPath, workspacePath, workspaceFolders);
-                            if (incPath.endsWith('/**')) {
-                                const s = incPath.substring(0, incPath.length - 3);
-                                pushIncPath(s);
-                                walkDir(s, true, (dir: string) => {
-                                    pushIncPath(dir);
-                                });
-                            } else if (incPath.endsWith('/*')) {
-                                const s = incPath.substring(0, incPath.length - 2);
-                                pushIncPath(s);
-                                walkDir(s, false, (dir: string) => {
-                                    pushIncPath(dir);
-                                });
-                            } else {
-                                pushIncPath(incPath);
-                            }
-                        });
-                    }
-                    cStandard = config.cStandard;
-                    cppStandard = config.cppStandard;
-                });
-            }
-        }
-    });
-
-    return {
-        cppToolsIncludePaths, cStandard, cppStandard
-    };
 }
