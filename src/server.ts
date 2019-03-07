@@ -9,7 +9,7 @@ import Uri from 'vscode-uri';
 import { generateDiagnostics } from './tidy';
 import * as path from 'path';
 import * as fs from 'fs';
-import { isValide } from "./utils";
+import { isValide, inWorkspaceTest } from "./utils";
 import { initConfig } from "./config";
 
 // update by https://github.com/Microsoft/vscode-eslint/blob/master/server/src/eslintServer.ts
@@ -137,8 +137,11 @@ function getDocumentConfig(resource: string, workspaceFolders: WorkspaceFolder[]
             scopeUri: resource,
             section: 'clangTidy'
         });
-        documentConfig.set(resource, result.then(v => {
-            return initConfig(v, workspaceFolders);
+        documentConfig.set(resource, result.then(config => {
+            if (inWorkspaceTest(Uri.parse(resource).fsPath, config, workspaceFolders)) {
+                return initConfig(config, workspaceFolders);
+            }
+            return config;
         }));
     }
     return result;

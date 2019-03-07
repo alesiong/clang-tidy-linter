@@ -92,6 +92,8 @@ function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsCo
 
 export function initConfig(configuration: Configuration, workspaceFolders: WorkspaceFolder[]): Configuration {
 
+  configuration.genArgs = [];
+
   configuration.defaultWorkspaceFolder = workspaceFolders && workspaceFolders.length > 0 ?
     Uri.parse(workspaceFolders[0].uri).fsPath : '.';
 
@@ -99,23 +101,23 @@ export function initConfig(configuration: Configuration, workspaceFolders: Works
     configuration.excludes[index] = resolvePath(exclude, configuration.defaultWorkspaceFolder, workspaceFolders)
   });
 
-  configuration.args.push('--export-fixes=-');
+  configuration.genArgs.push('--export-fixes=-');
 
   if (configuration.headerFilter) {
-    configuration.args.push('-header-filter=' + configuration.headerFilter);
+    configuration.genArgs.push('-header-filter=' + configuration.headerFilter);
   }
 
   configuration.systemIncludePath.forEach(path => {
     const arg = '-extra-arg=-isystem' + resolvePath(path, configuration.defaultWorkspaceFolder, workspaceFolders);
-    configuration.args.push(arg);
+    configuration.genArgs.push(arg);
   });
 
   configuration.extraCompilerArgs.forEach(arg => {
-    configuration.args.push('-extra-arg-before=' + arg);
+    configuration.genArgs.push('-extra-arg-before=' + arg);
   });
 
   configuration.args.forEach(arg => {
-    configuration.args.push(arg);
+    configuration.genArgs.push(arg);
   });
 
   if (workspaceFolders) {
@@ -126,7 +128,7 @@ export function initConfig(configuration: Configuration, workspaceFolders: Works
       configuration.cppStandard = cppStandard;
       cppToolsIncludePaths.forEach(path => {
         const arg = '-extra-arg=-I' + path;
-        configuration.args.push(arg);
+        configuration.genArgs.push(arg);
       });
     }
   }

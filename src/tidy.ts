@@ -57,7 +57,7 @@ export function generateDiagnostics(
     // Immediately add entries for the textDocument.
     diagnostics[textDocumentPath] = [];
     docs[textDocumentPath] = textDocument;
-    const args = configuration.args;
+    const args = configuration.genArgs;
 
     if (textDocument.languageId === 'c') {
         args.push('-extra-arg-before=-xc');
