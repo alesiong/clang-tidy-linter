@@ -110,7 +110,7 @@ export function generateDiagnostics(
             decoded += data;
         });
         childProcess.stdout.on('end', () => {
-            const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
+            const match = decoded.match(/(^\-\-\-((.|\r)*\n)*\.\.\.$)/gm);
             if (match && match[0]) {
                 const yaml = match[0];
                 const parsed = safeLoad(yaml) as ClangTidyResult;
