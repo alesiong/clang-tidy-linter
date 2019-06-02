@@ -40,5 +40,11 @@
             ],
             "preLaunchTask": "npm: watch"
         }
+    ],
+    "compounds": [
+        {
+            "name": "Extension/Language Server",
+            "configurations": ["Extension", "Language Server"]
+        }
     ]
 }
