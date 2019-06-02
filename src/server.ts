@@ -27,7 +27,8 @@ const defaultConfig: Configuration = {
     extraCompilerArgs: ["-Weverything"],
     headerFilter: ".*",
     args: [],
-    diagnosticFilter: "${workspaceFolder}"
+    diagnosticFilter: "${workspaceFolder}",
+    compileCommands: "${workspaceFolder}/compile_commands.json"
 };
 
 let globalConfig = defaultConfig;

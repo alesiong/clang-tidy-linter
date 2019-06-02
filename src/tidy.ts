@@ -57,6 +57,10 @@ export function generateDiagnostics(
         args.push('-header-filter=' + configuration.headerFilter);
     }
 
+    if (configuration.compileCommands) {
+        args.push('-p=' + configuration.compileCommands);
+    }
+
     configuration.systemIncludePath.forEach(path => {
         const arg = '-extra-arg=-isystem' + path;
         args.push(arg);

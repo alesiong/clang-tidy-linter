@@ -6,6 +6,7 @@ interface Configuration {
     headerFilter: string;
     args: string[];
     diagnosticFilter: string;
+    compileCommands: string;
 }
 
 interface ClangTidyResult {
