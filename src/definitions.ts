@@ -5,6 +5,7 @@ interface Configuration {
     extraCompilerArgs: string[];
     headerFilter: string;
     args: string[];
+    diagnosticFilter: string;
 }
 
 interface ClangTidyResult {

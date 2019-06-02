@@ -114,6 +114,12 @@ export function generateDiagnostics(
             if (match && match[0]) {
                 const yaml = match[0];
                 const parsed = safeLoad(yaml) as ClangTidyResult;
+
+                const workspacePath = workspaceFolders ? Uri.parse(workspaceFolders[0].uri).fsPath : null;
+                const diagnosticFilter = workspacePath ?
+                    configuration.diagnosticFilter.replace("${workspaceFolder}", workspacePath)
+                    : configuration.diagnosticFilter;
+
                 parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
                     const name: string = element.DiagnosticName;
                     const severity = name.endsWith('error') ?
@@ -155,6 +161,14 @@ export function generateDiagnostics(
 
                     // Ensure an absolute path for the main clang-tidy element.
                     element.FilePath = fixPath(element.FilePath);
+
+                    // Filter out diagnostics outside of the user code folder
+                    if (diagnosticFilter) {
+                        if (!element.FilePath.startsWith(diagnosticFilter)) {
+                            // Stop the element processing
+                            return;
+                        }
+                    }
 
                     // Iterate the replacements to:
                     // - Ensure absolute paths.

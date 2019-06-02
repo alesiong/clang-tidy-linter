@@ -75,6 +75,11 @@
                     "default": ".*",
                     "description": "Value for clang-tidy '-header-filter' command line argument"
                 },
+                "clangTidy.diagnosticFilter": {
+                    "type": "string",
+                    "default": "${workspaceFolder}",
+                    "description": "Filters out shown diagnostics to prevent issues outside of user's code being shown and improves the performance"
+                },
                 "clangTidy.args": {
                     "type": "array",
                     "items": {
