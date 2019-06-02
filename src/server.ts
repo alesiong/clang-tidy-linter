@@ -221,14 +221,16 @@ async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[
                     }
                 }
 
-                actions.push({
-                    title: '[Clang Tidy] Change to ' + replacements[0].ReplacementText,
-                    diagnostics: [d],
-                    kind: CodeActionKind.QuickFix,
-                    edit: {
-                        changes
-                    }
-                });
+                if (replacements.length) {
+                    actions.push({
+                        title: '[Clang Tidy] Change to ' + replacements[0].ReplacementText,
+                        diagnostics: [d],
+                        kind: CodeActionKind.QuickFix,
+                        edit: {
+                            changes
+                        }
+                    });
+                }
 
             } else {
                 actions.push({
