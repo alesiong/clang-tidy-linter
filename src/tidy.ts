@@ -177,8 +177,15 @@ export function generateDiagnostics(
                     // Iterate the replacements to:
                     // - Ensure absolute paths.
                     // - Resolve clang's character offset and length to a line and character range.
+                    // - Ensure that only replacements with actual ReplacementText are registered.
                     if (element.Replacements) {
-                        for (const replacement of element.Replacements) {
+                        const filteredReplacements: ClangTidyReplacement[] = [];
+                        element.Replacements.forEach(replacement => {
+                            // Check if ReplacementText exists
+                            if (!replacement.ReplacementText) {
+                                return;
+                            }
+
                             // Ensure replacement FilePath entries use absolute paths.
                             replacement.FilePath = fixPath(element.FilePath);
 
@@ -199,8 +206,13 @@ export function generateDiagnostics(
                                     end: doc.positionAt(character_offset + replacement.Length)
                                 };
                             }
-                        }
+
+                            filteredReplacements.push(replacement);
+                        });
+
+                        element.Replacements = filteredReplacements;
                     }
+
                     // Create a VSCode Diagnostic. Use the original textDocument if we fail to resolve the document
                     // path. This ensures the user gets feedback.
                     const doc = element.FilePath in docs ? docs[element.FilePath] : textDocument;
@@ -210,7 +222,7 @@ export function generateDiagnostics(
                     };
 
                     const diagnostic: Diagnostic = Diagnostic.create(element.Range, message, severity,
-                        element.Replacements && JSON.stringify(element.Replacements), clangTidySourceName);
+                        element.Replacements ? JSON.stringify(element.Replacements) : "", clangTidySourceName);
 
                     diagnostics[element.FilePath].push(diagnostic);
                     ++diagnosticsCount;
