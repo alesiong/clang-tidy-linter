@@ -19,6 +19,14 @@
             "preLaunchTask": "npm: watch"
         },
         {
+			"type": "node",
+			"request": "attach",
+			"name": "Language Server",
+			"port": 6009,
+			"restart": true,
+            "outFiles": ["${workspaceRoot}/out/**/*.js"],
+		},
+        {
             "name": "Extension Tests",
             "type": "extensionHost",
             "request": "launch",
@@ -31,6 +39,12 @@
                 "${workspaceFolder}/out/test/**/*.js"
             ],
             "preLaunchTask": "npm: watch"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Extension/Language Server",
+            "configurations": ["Extension", "Language Server"]
         }
     ]
 }

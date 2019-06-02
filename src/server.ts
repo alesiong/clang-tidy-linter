@@ -26,7 +26,9 @@ const defaultConfig: Configuration = {
     lintLanguages: ["c", "cpp"],
     extraCompilerArgs: ["-Weverything"],
     headerFilter: ".*",
-    args: []
+    args: [],
+    diagnosticFilter: "${workspaceFolder}",
+    compileCommands: "${workspaceFolder}/compile_commands.json"
 };
 
 let globalConfig = defaultConfig;
@@ -220,14 +222,16 @@ async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[
                     }
                 }
 
-                actions.push({
-                    title: '[Clang Tidy] Change to ' + replacements[0].ReplacementText,
-                    diagnostics: [d],
-                    kind: CodeActionKind.QuickFix,
-                    edit: {
-                        changes
-                    }
-                });
+                if (replacements.length) {
+                    actions.push({
+                        title: '[Clang Tidy] Change to ' + replacements[0].ReplacementText,
+                        diagnostics: [d],
+                        kind: CodeActionKind.QuickFix,
+                        edit: {
+                            changes
+                        }
+                    });
+                }
 
             } else {
                 actions.push({

@@ -57,6 +57,10 @@ export function generateDiagnostics(
         args.push('-header-filter=' + configuration.headerFilter);
     }
 
+    if (configuration.compileCommands) {
+        args.push('-p=' + configuration.compileCommands);
+    }
+
     configuration.systemIncludePath.forEach(path => {
         const arg = '-extra-arg=-isystem' + path;
         args.push(arg);
@@ -114,6 +118,12 @@ export function generateDiagnostics(
             if (match && match[0]) {
                 const yaml = match[0];
                 const parsed = safeLoad(yaml) as ClangTidyResult;
+
+                const workspacePath = workspaceFolders ? Uri.parse(workspaceFolders[0].uri).fsPath : null;
+                const diagnosticFilter = workspacePath ?
+                    configuration.diagnosticFilter.replace("${workspaceFolder}", workspacePath)
+                    : configuration.diagnosticFilter;
+
                 parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
                     const name: string = element.DiagnosticName;
                     const severity = name.endsWith('error') ?
@@ -156,11 +166,26 @@ export function generateDiagnostics(
                     // Ensure an absolute path for the main clang-tidy element.
                     element.FilePath = fixPath(element.FilePath);
 
+                    // Filter out diagnostics outside of the user code folder
+                    if (diagnosticFilter) {
+                        if (!element.FilePath.startsWith(diagnosticFilter)) {
+                            // Stop the element processing
+                            return;
+                        }
+                    }
+
                     // Iterate the replacements to:
                     // - Ensure absolute paths.
                     // - Resolve clang's character offset and length to a line and character range.
+                    // - Ensure that only replacements with actual ReplacementText are registered.
                     if (element.Replacements) {
-                        for (const replacement of element.Replacements) {
+                        const filteredReplacements: ClangTidyReplacement[] = [];
+                        element.Replacements.forEach(replacement => {
+                            // Check if ReplacementText exists
+                            if (!replacement.ReplacementText) {
+                                return;
+                            }
+
                             // Ensure replacement FilePath entries use absolute paths.
                             replacement.FilePath = fixPath(element.FilePath);
 
@@ -181,8 +206,13 @@ export function generateDiagnostics(
                                     end: doc.positionAt(character_offset + replacement.Length)
                                 };
                             }
-                        }
+
+                            filteredReplacements.push(replacement);
+                        });
+
+                        element.Replacements = filteredReplacements;
                     }
+
                     // Create a VSCode Diagnostic. Use the original textDocument if we fail to resolve the document
                     // path. This ensures the user gets feedback.
                     const doc = element.FilePath in docs ? docs[element.FilePath] : textDocument;
@@ -192,7 +222,7 @@ export function generateDiagnostics(
                     };
 
                     const diagnostic: Diagnostic = Diagnostic.create(element.Range, message, severity,
-                        element.Replacements && JSON.stringify(element.Replacements), clangTidySourceName);
+                        element.Replacements ? JSON.stringify(element.Replacements) : "", clangTidySourceName);
 
                     diagnostics[element.FilePath].push(diagnostic);
                     ++diagnosticsCount;
