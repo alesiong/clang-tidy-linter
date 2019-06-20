@@ -1,12 +1,14 @@
 
 import {
-    Diagnostic, DiagnosticSeverity, TextDocument, WorkspaceFolder, Connection
+    Diagnostic, DiagnosticSeverity, TextDocument, WorkspaceFolder
 } from 'vscode-languageserver';
 import { spawn } from 'child_process';
 import { safeLoad } from 'js-yaml';
 import Uri from 'vscode-uri';
 import * as path from 'path';
 import * as fs from 'fs';
+import { isValide } from "./utils";
+
 
 // Invoke clang-tidy and transform it issues into a file/Diagnostics map.
 //
@@ -25,11 +27,11 @@ import * as fs from 'fs';
 // onParsed: Callback to invoke once the diagnostics are generated. The argument holds a dictionary of results.
 //      These are keyed on absolute file path (not URI) and the array of associated Diagnostics for that file.
 export function generateDiagnostics(
-    connection: Connection,
     textDocument: TextDocument, configuration: Configuration,
     workspaceFolders: WorkspaceFolder[],
     onParsed: (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] },
         diagnosticsCount: number) => void) {
+
 
     let decoded = '';
     // Dictionary of collated diagnostics keyed on absolute file name. This supports source files generating
@@ -41,195 +43,190 @@ export function generateDiagnostics(
     // file level character offsets into line/character offsets used by VSCode.
     // Keyed on absolute file name.
     const docs: { [id: string]: TextDocument } = {};
+    const textDocumentPath = Uri.parse(textDocument.uri).fsPath;
 
-    let cppToolsConfigs: CppToolsConfigs | null = null;
-    if (workspaceFolders) {
-        cppToolsConfigs = readConfigFromCppTools(workspaceFolders);
+    function resolveFilePath(filePath: string): string {
+        if (filePath === '') {
+            return textDocumentPath;
+        }
+        filePath = path.resolve(filePath);
+
+        return isValide(filePath, configuration, workspaceFolders)? filePath: "";
     }
 
     // Immediately add entries for the textDocument.
-    diagnostics[Uri.parse(textDocument.uri).fsPath] = [];
-    docs[Uri.parse(textDocument.uri).fsPath] = textDocument;
+    diagnostics[textDocumentPath] = [];
+    docs[textDocumentPath] = textDocument;
+    const args = configuration.genArgs;
 
-    const args = [Uri.parse(textDocument.uri).fsPath, '--export-fixes=-'];
-
-    if (configuration.headerFilter) {
-        args.push('-header-filter=' + configuration.headerFilter);
-    }
-
-    configuration.systemIncludePath.forEach(path => {
-        const arg = '-extra-arg=-isystem' + path;
-        args.push(arg);
-    });
-
-    configuration.extraCompilerArgs.forEach(arg => {
-        args.push('-extra-arg-before=' + arg);
-    });
-
-    configuration.args.forEach(arg => {
-        args.push(arg);
-    });
-
-    if (cppToolsConfigs) {
-        const { cppToolsIncludePaths, cStandard, cppStandard } = cppToolsConfigs;
-        if (textDocument.languageId === 'c') {
-            args.push('-extra-arg-before=-xc');
-            if (cStandard) {
-                args.push('-extra-arg-before=-std=' + cStandard);
-            }
+    if (textDocument.languageId === 'c') {
+        args.push('-extra-arg-before=-xc');
+        if (configuration.cStandard) {
+            args.push('-extra-arg-before=-std=' + configuration.cStandard);
         }
+    }
 
-        if (textDocument.languageId === 'cpp') {
-            args.push('-extra-arg-before=-xc++');
-            if (cppStandard) {
-                args.push('-extra-arg-before=-std=' + cppStandard);
-            }
+    if (textDocument.languageId === 'cpp') {
+        args.push('-extra-arg-before=-xc++');
+        if (configuration.cppStandard) {
+            args.push('-extra-arg-before=-std=' + configuration.cppStandard);
         }
-
-        cppToolsIncludePaths.forEach(path => {
-            const arg = '-extra-arg=-I' + path;
-            args.push(arg);
-        });
     }
-
-    // Replace ${workspaceFolder} in arguments. Seem to be a number of issues open regarding
-    // support for this in the VSCode API, but I can't find a solution.
-    if (workspaceFolders) {
-        const workspaceFolder = Uri.parse(workspaceFolders[0].uri).fsPath;
-        args.forEach(function (arg, index) {
-            args[index] = arg.replace("${workspaceFolder}", workspaceFolder);
-        });
-    }
-
-    // console.warn("clang-tidy with args: " + args);
+    args.push(textDocumentPath);
     const childProcess = spawn(configuration.executable, args);
 
-    childProcess.on('error', console.error);
-    if (childProcess.pid) {
-        childProcess.stdout.on('data', (data) => {
-            decoded += data;
-        });
-        childProcess.stdout.on('end', () => {
-            const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
-            if (match && match[0]) {
-                const yaml = match[0];
-                const parsed = safeLoad(yaml) as ClangTidyResult;
-                parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
-                    const name: string = element.DiagnosticName;
-                    const severity = name.endsWith('error') ?
-                        DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
-                    const message: string = `${element.Message} (${name})`;
+    function addDiagnostic(filePath: string, range: Range, message: string,
+        severity: DiagnosticSeverity, code?: number | string) {
+        const diagnostic: Diagnostic = Diagnostic.create(range, message, severity,
+            code, 'Clang Tidy');
 
-                    // Helper function to ensure absolute paths and required registrations are made.
-                    function fixPath(filePath: string): string {
-                        if (filePath && !path.isAbsolute(filePath)) {
-                            filePath = path.resolve(path.dirname(Uri.parse(textDocument.uri).fsPath),
-                                filePath);
-                        }
+        if (!(filePath in diagnostics)) {
+            diagnostics[filePath] = [];
+        }
+        diagnostics[filePath].push(diagnostic);
+        ++diagnosticsCount;
+    }
 
-                        if (!(filePath in diagnostics)) {
-                            diagnostics[filePath] = [];
-                        }
+    function parseCompilerError() {
+        const regex = /(.*):(\d+):(\d+):\s(\w+):(.*)\n(.*\n.*)/gm;
+        let matchs: RegExpExecArray | null;
+        while ((matchs = regex.exec(decoded)) !== null) {
+            if (matchs.index === regex.lastIndex) {
+                regex.lastIndex++;
+            }
+            if (matchs.length >= 7) {
+                const filePath = resolveFilePath(matchs[1]);
+                if (filePath === '') {
+                    continue;
+                }
 
-                        // Resolve replacement.FileOffset and replacement.Length into a range.
-                        let doc: TextDocument | undefined = undefined;
-
-                        // Resolve the document.
-                        if (!(filePath in docs)) {
-                            // Unresolved. We'll create a new TextDocument reference loading the content.
-                            // This is potentially inefficient, and it would be nice to see if we can leverage
-                            // VSCode to manage this.
-                            if (fs.existsSync(filePath)) {
-                                doc = TextDocument.create("file://" + filePath,
-                                    textDocument.languageId, 0,
-                                    fs.readFileSync(filePath).toString());
-                                docs[filePath] = doc;
-                            }
-                        }
-
-                        return filePath;
+                const line = Number(matchs[2]) - 1;
+                const col = Number(matchs[3]) - 1;
+                const severity = matchs[4].endsWith('error') ?
+                    DiagnosticSeverity.Error : DiagnosticSeverity.Warning;
+                if (severity !== DiagnosticSeverity.Error) {
+                    continue;
+                }
+                const message = matchs[5];
+                const reason = matchs[6];
+                const range = {
+                    start: {
+                        line: line,
+                        character: col
+                    },
+                    end: {
+                        line: line,
+                        character: col
                     }
+                };
 
-                    // Create a dictionary of diagnostics ensuring we use absolute paths to handle errors from headers.
-                    const clangTidySourceName: string = 'Clang Tidy';
+                addDiagnostic(filePath, range, message + '\n' + reason, severity);
+            }
+        }
+    }
 
-                    // Ensure an absolute path for the main clang-tidy element.
-                    element.FilePath = fixPath(element.FilePath);
+    function parseTidyWarn() {
+        const replacements: ClangTidyReplacementFix[] = [];
+        const match = decoded.match(/(^\-\-\-(.*\n)*\.\.\.$)/gm);
+        if (match && match[0]) {
+            const yaml = match[0];
+            const parsed = safeLoad(yaml) as ClangTidyResult;
+            parsed.Diagnostics.forEach((element: ClangTidyDiagnostic) => {
+                element.FilePath = resolveFilePath(element.FilePath);
+                if (element.FilePath === '') {
+                    return;
+                }
 
-                    // Iterate the replacements to:
-                    // - Ensure absolute paths.
-                    // - Resolve clang's character offset and length to a line and character range.
-                    if (element.Replacements) {
-                        for (const replacement of element.Replacements) {
-                            // Ensure replacement FilePath entries use absolute paths.
-                            replacement.FilePath = fixPath(element.FilePath);
+                const name: string = element.DiagnosticName;
+                if (name.endsWith('error')) {
+                    return;
+                }
+                const severity = DiagnosticSeverity.Warning;
+                const message: string = `${element.Message} (${name})`;
 
-                            // Create a diagnostic for the replacement. The context of each replacement may be a
-                            // different file from the element's FilePath.
-                            let doc: TextDocument;
-                            if (replacement.FilePath in docs) {
-                                doc = docs[replacement.FilePath];
-
-                                //replacement.Offset is byte offset, not the character offset
-                                //when your source file contains some symbol which takes more than one byte
-                                //to encode, it will cause error.                                     
-                                const doc_buff = Buffer.from(doc.getText());
-                                const character_offset = doc_buff.toString('utf-8',0,replacement.Offset).length;
-
-                                replacement.Range = {
-                                    start: doc.positionAt(character_offset),
-                                    end: doc.positionAt(character_offset + replacement.Length)
-                                };
-                            }
+                let doc: TextDocument | null = null;
+                if (element.FilePath in docs) {
+                    doc = docs[element.FilePath];
+                } else {
+                    // Unresolved. We'll create a new TextDocument reference loading the content.
+                    // This is potentially inefficient, and it would be nice to see if we can leverage
+                    // VSCode to manage this.
+                    if (fs.existsSync(element.FilePath)) {
+                        try {
+                            // Resolve replacement.FileOffset and replacement.Length into a range.
+                            doc = TextDocument.create("file://" + element.FilePath,
+                                textDocument.languageId, 0,
+                                fs.readFileSync(element.FilePath).toString());
+                            docs[element.FilePath] = doc;
+                        } catch (error) {
+                            console.error(element.FilePath, ':', error);
                         }
                     }
-                    // Create a VSCode Diagnostic. Use the original textDocument if we fail to resolve the document
-                    // path. This ensures the user gets feedback.
-                    const doc = element.FilePath in docs ? docs[element.FilePath] : textDocument;
+                }
+
+
+                // Iterate the replacements to:
+                // - Ensure absolute paths.
+                // - Resolve clang's character offset and length to a line and character range.
+                if (element.Replacements) {
+                    for (const replacement of element.Replacements) {
+                        const replacementFix: ClangTidyReplacementFix = {
+                            t: replacement.ReplacementText
+                        };
+                        // Ensure replacement FilePath entries use absolute paths.
+                        //replacement.FilePath = element.FilePath;
+
+                        // Create a diagnostic for the replacement. The context of each replacement may be a
+                        // different file from the element's FilePath.
+                        if (doc) {
+                            //replacement.Offset is byte offset, not the character offset
+                            //when your source file contains some symbol which takes more than one byte
+                            //to encode, it will cause error.
+                            const doc_buff = Buffer.from(doc.getText());
+                            const character_offset = doc_buff.toString('utf-8', 0, replacement.Offset).length;
+
+                            replacementFix.r = {
+                                start: doc.positionAt(character_offset),
+                                end: doc.positionAt(character_offset + replacement.Length)
+                            };
+                        }
+                        replacements.push(replacementFix);
+                    }
+                }
+
+                // Create a VSCode Diagnostic. Use the original textDocument if we fail to resolve the document
+                // path. This ensures the user gets feedback.
+                if (doc) {
                     element.Range = {
                         start: doc.positionAt(element.FileOffset),
                         end: doc.positionAt(element.FileOffset)
                     };
+                } else {
+                    element.Range = {
+                        start: textDocument.positionAt(element.FileOffset),
+                        end: textDocument.positionAt(element.FileOffset)
+                    };
+                }
 
-                    const diagnostic: Diagnostic = Diagnostic.create(element.Range, message, severity,
-                        element.Replacements && JSON.stringify(element.Replacements), clangTidySourceName);
+                addDiagnostic(element.FilePath, element.Range, message, severity,
+                    replacements.length > 0? JSON.stringify(replacements): undefined);
+            });
+        }
+    }
 
-                    diagnostics[element.FilePath].push(diagnostic);
-                    ++diagnosticsCount;
 
-                });
-            }
-
+    childProcess.on('error', console.error);
+    if (childProcess.pid) {
+        childProcess.stderr.on('data', data => {
+            // console.error(data.toString());
+        });
+        childProcess.stdout.on('data', (data) => {
+            decoded += data;
+        });
+        childProcess.stdout.on('end', () => {
+            parseCompilerError();
+            parseTidyWarn();
             onParsed(textDocument, diagnostics, diagnosticsCount);
         });
     }
-}
-
-function readConfigFromCppTools(workspaceFolders: WorkspaceFolder[]): CppToolsConfigs {
-    const cppToolsIncludePaths: string[] = [];
-    let cStandard: string = '';
-    let cppStandard: string = '';
-
-    workspaceFolders.forEach(folder => {
-        const config = path.join(Uri.parse(folder.uri).fsPath, '.vscode/c_cpp_properties.json');
-        if (fs.existsSync(config)) {
-            const content = fs.readFileSync(config, { encoding: 'utf8' });
-            const configJson = JSON.parse(content);
-            if (configJson.configurations) {
-                configJson.configurations.forEach((config: any) => {
-                    if (config.includePath) {
-                        config.includePath.forEach((path: string) => {
-                            cppToolsIncludePaths.push(path.replace('${workspaceFolder}', '.'));
-                        });
-                    }
-                    cStandard = config.cStandard;
-                    cppStandard = config.cppStandard;
-                });
-            }
-        }
-    });
-
-    return {
-        cppToolsIncludePaths, cStandard, cppStandard
-    };
 }

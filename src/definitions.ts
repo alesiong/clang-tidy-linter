@@ -5,6 +5,13 @@ interface Configuration {
     extraCompilerArgs: string[];
     headerFilter: string;
     args: string[];
+    excludes: string[];
+    workspaceOnly: boolean;
+
+    defaultWorkspaceFolder: string;
+    genArgs: string[];
+    cStandard: string;
+    cppStandard: string;
 }
 
 interface ClangTidyResult {
@@ -36,7 +43,12 @@ interface ClangTidyReplacement {
     Offset: number;
     Length: number;
     ReplacementText: string;
-    Range?: Range;  // Offset and length translated into line character
+    //Range?: Range;  // Offset and length translated into line character
+}
+
+interface ClangTidyReplacementFix {
+    t: string;
+    r?: Range;  // Offset and length translated into line character
 }
 
 interface CppToolsConfigs {

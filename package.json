@@ -82,6 +82,19 @@
                     },
                     "default": [],
                     "description": "Additional arguments to pass to clang-tidy"
+                },
+                "clangTidy.excludes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Don't show message if file path of document in the excludes"
+                },
+                "clangTidy.workspaceOnly": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Limit messages to document on the workspaces folders"
                 }
             }
         }

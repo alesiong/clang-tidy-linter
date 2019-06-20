@@ -3,12 +3,17 @@
 import {
     createConnection, TextDocuments, TextDocument, Diagnostic,
     ProposedFeatures, InitializeParams, DidChangeConfigurationNotification,
-    CodeActionParams, CodeAction, CodeActionKind, TextEdit, PublishDiagnosticsParams,
+    CodeActionParams, CodeAction, CodeActionKind, TextEdit, PublishDiagnosticsParams, WorkspaceFolder,
 } from 'vscode-languageserver';
 import Uri from 'vscode-uri';
 import { generateDiagnostics } from './tidy';
 import * as path from 'path';
 import * as fs from 'fs';
+import { isValide, inWorkspaceTest } from "./utils";
+import { initConfig } from "./config";
+
+// update by https://github.com/Microsoft/vscode-eslint/blob/master/server/src/eslintServer.ts
+// see:RuleCodeActions,
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments();
@@ -26,11 +31,17 @@ const defaultConfig: Configuration = {
     lintLanguages: ["c", "cpp"],
     extraCompilerArgs: ["-Weverything"],
     headerFilter: ".*",
-    args: []
+    args: [],
+    excludes: [],
+    workspaceOnly: false,
+    defaultWorkspaceFolder: '.',
+
+    genArgs: [],
+    cStandard: '',
+    cppStandard: ''
 };
 
 let globalConfig = defaultConfig;
-
 const documentConfig: Map<string, Thenable<Configuration>> = new Map();
 
 connection.onInitialize((params: InitializeParams) => {
@@ -99,7 +110,7 @@ function getAlternativeDoc(filePath: string, languageId: string): TextDocument |
     // Assume it's a header file and look for a matching source file in the same directory.
     // It would be better to query VSCode for this as it has better overall visibility of matching source to header.
     const basePath = path.parse(Uri.parse(filePath).fsPath);
-    const tryExtensions = ["c", "cpp", "cxx"];
+    const tryExtensions = ["c", "cpp", "cxx", "cc"];
 
     for (const ext of tryExtensions) {
         const tryPath = path.join(basePath.dir, basePath.name + "." + ext);
@@ -116,7 +127,7 @@ function getAlternativeDoc(filePath: string, languageId: string): TextDocument |
 }
 
 // Get config by document url (resource)
-function getDocumentConfig(resource: string): Thenable<Configuration> {
+function getDocumentConfig(resource: string, workspaceFolders: WorkspaceFolder[]): Thenable<Configuration> {
     if (!hasConfigurationCapability) {
         return Promise.resolve(globalConfig);
     }
@@ -126,23 +137,28 @@ function getDocumentConfig(resource: string): Thenable<Configuration> {
             scopeUri: resource,
             section: 'clangTidy'
         });
-        documentConfig.set(resource, result);
+        documentConfig.set(resource, result.then(config => {
+            if (inWorkspaceTest(Uri.parse(resource).fsPath, config, workspaceFolders)) {
+                return initConfig(config, workspaceFolders);
+            }
+            return config;
+        }));
     }
     return result;
 }
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const workspaceFolders = await connection.workspace.getWorkspaceFolders();
-    const configuration = await getDocumentConfig(textDocument.uri);
+    const folders = workspaceFolders ? workspaceFolders : [];
+    const configuration = await getDocumentConfig(textDocument.uri, folders);
+
     const lintLanguages = new Set(configuration.lintLanguages);
 
-
-    if (!lintLanguages.has(textDocument.languageId)) {
+    if (!lintLanguages.has(textDocument.languageId) ||
+        !isValide(Uri.parse(textDocument.uri).fsPath, configuration, folders)) {
         return;
     }
 
-
-    const folders = workspaceFolders ? workspaceFolders : [];
 
     let allowRecursion: boolean = true;
     const processResults = (doc: TextDocument, diagnostics: { [id: string]: Diagnostic[] },
@@ -159,7 +175,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
             // console.warn("Alternative: " + (referenceDoc ? referenceDoc.uri : ""));
             if (referenceDoc) {
                 sentDiagnostics = true;
-                generateDiagnostics(connection, referenceDoc, configuration, folders, processResults);
+                generateDiagnostics(referenceDoc, configuration, folders, processResults);
             }
         }
 
@@ -191,7 +207,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     };
 
 
-    generateDiagnostics(connection, textDocument, configuration, folders, processResults);
+    generateDiagnostics(textDocument, configuration, folders, processResults);
 }
 
 async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[]> {
@@ -199,42 +215,41 @@ async function provideCodeActions(params: CodeActionParams): Promise<CodeAction[
     const actions: CodeAction[] = [];
     diagnostics
         .filter(d => d.source === 'Clang Tidy')
-        .forEach(d => {
+        .forEach((d, index) => {
             // console.warn("d.code: " + d.code);
             if (d.code && typeof d.code === 'string') {
-                const replacements = JSON.parse(d.code) as ClangTidyReplacement[];
+                const replacements = JSON.parse(d.code) as ClangTidyReplacementFix[];
 
                 const changes: { [uri: string]: TextEdit[]; } = {};
                 for (const replacement of replacements) {
                     // Only add replacement if we have a range. We should do.
-                    if (replacement.Range) {
+                    if (replacement.r) {
                         // console.warn("replacement: " + replacement.Range);
                         if (!(params.textDocument.uri in changes)) {
                             changes[params.textDocument.uri] = [];
                         }
 
                         changes[params.textDocument.uri].push({
-                            range: replacement.Range,
-                            newText: replacement.ReplacementText
+                            range: replacement.r,
+                            newText: replacement.t
                         });
                     }
                 }
 
                 actions.push({
-                    title: '[Clang Tidy] Change to ' + replacements[0].ReplacementText,
+                    title: '[Clang Tidy] Change to ' + replacements[0].t,
                     diagnostics: [d],
                     kind: CodeActionKind.QuickFix,
                     edit: {
                         changes
                     }
                 });
-
             } else {
-                actions.push({
-                    title: 'Apply clang-tidy fix [NYI]',
-                    diagnostics: [d],
-                    kind: CodeActionKind.QuickFix
-                });
+                // actions.push({
+                //     title: 'Apply clang-tidy fix [NYI]',
+                //     diagnostics: [d],
+                //     kind: CodeActionKind.QuickFix
+                // });
             }
         });
     return actions;
