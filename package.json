@@ -103,7 +103,7 @@
     },
     "dependencies": {
         "js-yaml": "^3.13.1",
-        "url-parse": ">=1.4.3",
+        "url-parse": ">=1.5.9",
         "vscode-languageclient": "^4.2.1",
         "vscode-languageserver": "^4.2.1",
         "vscode-uri": "^1.0.5"
